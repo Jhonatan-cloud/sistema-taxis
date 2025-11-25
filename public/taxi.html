@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>App Taxi</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Taxi - Sesión</h1>
+
+    <div class="card" id="cardLogin">
+      <label>ID Taxi:</label><br />
+      <input type="text" id="txtIdTaxi" placeholder="Ej: TX-01" /><br />
+      <label>Nombre del chofer:</label><br />
+      <input type="text" id="txtNombre" placeholder="Ej: Juan Pérez" /><br />
+      <button id="btnIngresar">Ingresar</button>
+    </div>
+
+    <div class="card" id="cardApp" style="display:none;">
+      <h2>Bienvenido, <span id="spNombre"></span></h2>
+      <p><strong>ID Taxi:</strong> <span id="spIdTaxi"></span></p>
+      <p><strong>Estado:</strong> <span class="badge" id="spEstado">disponible</span></p>
+      <hr/>
+
+      <h3>Mi ubicación</h3>
+      <p id="pUbicacion">Buscando ubicación...</p>
+      <button id="btnSimularUbicacion">Simular ubicación</button>
+
+      <hr/>
+
+      <h3>Servicio asignado</h3>
+      <div id="infoServicio">
+        <p>No tienes servicios asignados.</p>
+      </div>
+      <div id="accionesServicio" style="display:none;">
+        <button id="btnAceptar">Aceptar</button>
+        <button id="btnEnCurso">En curso</button>
+        <button id="btnFinalizado">Finalizado</button>
+      </div>
+
+      <hr/>
+
+      <h3>Chat con central</h3>
+      <div id="chatMensajes" class="lista" style="background:rgba(0,0,0,0.2); padding:8px;"></div>
+      <input type="text" id="txtMensaje" placeholder="Mensaje para la central..." style="width:80%" />
+      <button id="btnEnviarMensaje">Enviar</button>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+
+    const cardLogin = document.getElementById("cardLogin");
+    const cardApp = document.getElementById("cardApp");
+
+    const txtIdTaxi = document.getElementById("txtIdTaxi");
+    const txtNombre = document.getElementById("txtNombre");
+    const btnIngresar = document.getElementById("btnIngresar");
+
+    const spNombre = document.getElementById("spNombre");
+    const spIdTaxi = document.getElementById("spIdTaxi");
+    const spEstado = document.getElementById("spEstado");
+
+    const pUbicacion = document.getElementById("pUbicacion");
+    const btnSimularUbicacion = document.getElementById("btnSimularUbicacion");
+
+    const infoServicioDiv = document.getElementById("infoServicio");
+    const accionesServicioDiv = document.getElementById("accionesServicio");
+    const btnAceptar = document.getElementById("btnAceptar");
+    const btnEnCurso = document.getElementById("btnEnCurso");
+    const btnFinalizado = document.getElementById("btnFinalizado");
+
+    const chatMensajesDiv = document.getElementById("chatMensajes");
+    const txtMensaje = document.getElementById("txtMensaje");
+    const btnEnviarMensaje = document.getElementById("btnEnviarMensaje");
+
+    let idServicioActual = null;
+
+    btnIngresar.addEventListener("click", () => {
+      const idTaxi = txtIdTaxi.value.trim();
+      const nombre = txtNombre.value.trim();
+      if (!idTaxi || !nombre) {
+        alert("Completa ID Taxi y nombre.");
+        return;
+      }
+
+      socket.emit("registrarTaxi", { idTaxi, nombre });
+
+      spNombre.textContent = nombre;
+      spIdTaxi.textContent = idTaxi;
+
+      cardLogin.style.display = "none";
+      cardApp.style.display = "block";
+
+      iniciarGeolocalizacion();
+    });
+
+    // Recibir servicio desde la central
+    socket.on("nuevoServicio", (servicio) => {
+      idServicioActual = servicio.id;
+      infoServicioDiv.innerHTML = `
+        <p>
+          <strong>Servicio #${servicio.id}</strong><br/>
+          Dirección de recojo: ${servicio.direccion}
+        </p>
+      `;
+      accionesServicioDiv.style.display = "block";
+      actualizarEstado("asignado");
+      alert("Tienes un nuevo servicio asignado.");
+    });
+
+    btnAceptar.addEventListener("click", () => {
+      cambiarEstadoServicio("aceptado");
+    });
+
+    btnEnCurso.addEventListener("click", () => {
+      cambiarEstadoServicio("en curso");
+    });
+
+    btnFinalizado.addEventListener("click", () => {
+      cambiarEstadoServicio("finalizado");
+      idServicioActual = null;
+      infoServicioDiv.innerHTML = "<p>No tienes servicios asignados.</p>";
+      accionesServicioDiv.style.display = "none";
+    });
+
+    function cambiarEstadoServicio(nuevoEstado) {
+      if (!idServicioActual) return;
+      socket.emit("estadoServicio", { idServicio: idServicioActual, nuevoEstado });
+      actualizarEstado(nuevoEstado);
+    }
+
+    function actualizarEstado(estado) {
+      spEstado.textContent = estado;
+    }
+
+    // Geolocalización real
+    function iniciarGeolocalizacion() {
+      if ("geolocation" in navigator) {
+        navigator.geolocation.watchPosition(
+          (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            pUbicacion.textContent = `Lat: ${lat.toFixed(5)} - Lng: ${lng.toFixed(5)}`;
+            socket.emit("actualizarUbicacion", { lat, lng });
+          },
+          (err) => {
+            pUbicacion.textContent = "No se pudo obtener la ubicación real. Usa 'Simular ubicación'.";
+          }
+        );
+      } else {
+        pUbicacion.textContent = "Geolocalización no soportada. Usa 'Simular ubicación'.";
+      }
+    }
+
+    // Simular ubicación (para probar en PC)
+    btnSimularUbicacion.addEventListener("click", () => {
+      const lat = -12.04637 + (Math.random() - 0.5) / 100;
+      const lng = -77.04279 + (Math.random() - 0.5) / 100;
+      pUbicacion.textContent = `Lat (sim): ${lat.toFixed(5)} - Lng (sim): ${lng.toFixed(5)}`;
+      socket.emit("actualizarUbicacion", { lat, lng });
+    });
+
+    // Chat
+    btnEnviarMensaje.addEventListener("click", () => {
+      const mensaje = txtMensaje.value.trim();
+      if (!mensaje) return;
+      socket.emit("mensajeChat", {
+        desde: "TAXI " + spIdTaxi.textContent,
+        para: "central",
+        mensaje
+      });
+      txtMensaje.value = "";
+    });
+
+    socket.on("mensajeChat", (data) => {
+      const p = document.createElement("p");
+      p.innerHTML = `<strong>${data.desde}:</strong> ${data.mensaje}`;
+      chatMensajesDiv.appendChild(p);
+      chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
+    });
+  </script>
+</body>
+</html>

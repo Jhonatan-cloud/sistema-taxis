@@ -1,0 +1,13 @@
+{
+  "name": "sistema-taxis",
+  "version": "1.0.0",
+  "description": "Sistema de central de taxis (PC) y app para taxistas (web movil)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "socket.io": "^4.8.0"
+  }
+}

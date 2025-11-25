@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Central de Taxis</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    #map {
+      width: 100%;
+      height: 350px;
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <!-- LOGIN CENTRAL -->
+  <div class="container" id="loginContainer">
+    <h1>Login Central de Taxis</h1>
+    <div class="card">
+      <label>Usuario:</label><br />
+      <input type="text" id="txtUser" placeholder="Usuario" /><br />
+      <label>Contraseña:</label><br />
+      <input type="password" id="txtPass" placeholder="Contraseña" /><br />
+      <button id="btnLogin">Ingresar</button>
+    </div>
+    <p>Usuario: <strong>TAXISPERU</strong> | Contraseña: <strong>PERU123</strong></p>
+  </div>
+
+  <!-- APLICACIÓN CENTRAL -->
+  <div class="container" id="appContainer" style="display:none;">
+    <h1>Central de Taxis</h1>
+
+    <div class="card">
+      <h2>Mapa de taxis</h2>
+      <div id="map">Cargando mapa…</div>
+    </div>
+
+    <div class="card">
+      <h2>Taxis conectados</h2>
+      <div id="listaTaxis" class="lista"></div>
+    </div>
+
+    <div class="card">
+      <h2>Asignar servicio</h2>
+      <label>Seleccionar taxi:</label><br />
+      <select id="selectTaxi"></select><br />
+      <label>Dirección / punto de recojo:</label><br />
+      <input type="text" id="txtDireccion" placeholder="Ej: Av. Perú 123 - San Martín" style="width:100%" /><br />
+      <button id="btnAsignar">Asignar servicio</button>
+    </div>
+
+    <div class="card">
+      <h2>Servicios</h2>
+      <div id="listaServicios" class="lista"></div>
+    </div>
+
+    <div class="card">
+      <h2>Chat central ↔ taxis</h2>
+      <div id="chatMensajes" class="lista" style="background:rgba(0,0,0,0.2); padding:8px;"></div>
+      <input type="text" id="txtMensaje" placeholder="Escribe un mensaje..." style="width:80%" />
+      <button id="btnEnviarMensaje">Enviar</button>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+
+    // LOGIN
+    const loginContainer = document.getElementById("loginContainer");
+    const appContainer = document.getElementById("appContainer");
+    const txtUser = document.getElementById("txtUser");
+    const txtPass = document.getElementById("txtPass");
+    const btnLogin = document.getElementById("btnLogin");
+
+    btnLogin.addEventListener("click", () => {
+      const u = txtUser.value.trim();
+      const p = txtPass.value.trim();
+
+      if (u === "TAXISPERU" && p === "PERU123") {
+        loginContainer.style.display = "none";
+        appContainer.style.display = "block";
+      } else {
+        alert("Usuario o contraseña incorrectos.");
+      }
+    });
+
+    // ELEMENTOS APP
+    const listaTaxisDiv = document.getElementById("listaTaxis");
+    const selectTaxi = document.getElementById("selectTaxi");
+    const txtDireccion = document.getElementById("txtDireccion");
+    const btnAsignar = document.getElementById("btnAsignar");
+    const listaServiciosDiv = document.getElementById("listaServicios");
+    const chatMensajesDiv = document.getElementById("chatMensajes");
+    const txtMensaje = document.getElementById("txtMensaje");
+    const btnEnviarMensaje = document.getElementById("btnEnviarMensaje");
+
+    let taxis = {};
+    let map = null;
+    let markers = {};
+    let geocoder = null;
+    let destinos = {};
+    let destMarkers = {};
+    let polylines = {};
+
+    // ---- MAPA ----
+    function initMap() {
+      const centroInicial = { lat: -12.046374, lng: -77.042793 }; // Lima aprox
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: centroInicial,
+        zoom: 12
+      });
+      geocoder = new google.maps.Geocoder();
+    }
+
+    function actualizarMarkers() {
+      if (!map) return;
+
+      const idsActuales = Object.keys(taxis);
+
+      // Crear / actualizar markers de taxis
+      idsActuales.forEach((id) => {
+        const t = taxis[id];
+        if (t.lat == null || t.lng == null) return;
+
+        const pos = { lat: t.lat, lng: t.lng };
+
+        if (!markers[id]) {
+          markers[id] = new google.maps.Marker({
+            position: pos,
+            map: map,
+            title: `${t.nombre} (ID: ${t.idTaxi})`,
+            icon: "https://maps.gstatic.com/mapfiles/ms2/micons/cabs.png"
+          });
+        } else {
+          markers[id].setPosition(pos);
+        }
+
+        if (destinos[id]) {
+          crearOActualizarRuta(id);
+        }
+      });
+
+      // Eliminar markers de taxis desconectados
+      Object.keys(markers).forEach((id) => {
+        if (!taxis[id]) {
+          markers[id].setMap(null);
+          delete markers[id];
+
+          if (destMarkers[id]) {
+            destMarkers[id].setMap(null);
+            delete destMarkers[id];
+          }
+          if (polylines[id]) {
+            polylines[id].setMap(null);
+            delete polylines[id];
+          }
+        }
+      });
+    }
+
+    function crearOActualizarRuta(socketIdTaxi) {
+      if (!markers[socketIdTaxi] || !destinos[socketIdTaxi]) return;
+
+      const origen = markers[socketIdTaxi].getPosition();
+      const destino = destinos[socketIdTaxi];
+
+      const path = [origen, destino];
+
+      if (!polylines[socketIdTaxi]) {
+        polylines[socketIdTaxi] = new google.maps.Polyline({
+          map: map,
+          path: path,
+          strokeColor: "#ffff00",
+          strokeWeight: 4
+        });
+      } else {
+        polylines[socketIdTaxi].setPath(path);
+      }
+    }
+
+    // ---- SOCKETS ----
+    socket.on("listaTaxis", (data) => {
+      taxis = data;
+      renderTaxis();
+      actualizarMarkers();
+    });
+
+    socket.on("actualizacionUbicaciones", (data) => {
+      taxis = data;
+      renderTaxis();
+      actualizarMarkers();
+    });
+
+    socket.on("listaServicios", (servicios) => {
+      renderServicios(servicios);
+    });
+
+    socket.on("mensajeChat", (data) => {
+      const p = document.createElement("p");
+      p.innerHTML = `<strong>${data.desde}:</strong> ${data.mensaje}`;
+      chatMensajesDiv.appendChild(p);
+      chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
+    });
+
+    btnAsignar.addEventListener("click", () => {
+      const socketIdTaxi = selectTaxi.value;
+      const direccion = txtDireccion.value.trim();
+      if (!socketIdTaxi || !direccion) {
+        alert("Selecciona un taxi y escribe una dirección.");
+        return;
+      }
+
+      socket.emit("asignarServicio", { socketIdTaxi, direccion });
+
+      // Geocodificar dirección para marcar destino y dibujar línea
+      if (geocoder && map) {
+        geocoder.geocode({ address: direccion }, (results, status) => {
+          if (status === "OK" && results[0]) {
+            const location = results[0].geometry.location;
+            destinos[socketIdTaxi] = location;
+
+            if (destMarkers[socketIdTaxi]) {
+              destMarkers[socketIdTaxi].setMap(null);
+            }
+            destMarkers[socketIdTaxi] = new google.maps.Marker({
+              position: location,
+              map: map,
+              title: "Destino del servicio",
+              icon: "https://maps.gstatic.com/mapfiles/ms2/micons/flag.png"
+            });
+
+            crearOActualizarRuta(socketIdTaxi);
+          } else {
+            console.log("No se pudo geocodificar:", status);
+          }
+        });
+      }
+
+      txtDireccion.value = "";
+    });
+
+    btnEnviarMensaje.addEventListener("click", () => {
+      const mensaje = txtMensaje.value.trim();
+      if (!mensaje) return;
+      socket.emit("mensajeChat", {
+        desde: "CENTRAL",
+        para: "taxis",
+        mensaje
+      });
+      txtMensaje.value = "";
+    });
+
+    function renderTaxis() {
+      listaTaxisDiv.innerHTML = "";
+      selectTaxi.innerHTML = "";
+
+      const ids = Object.keys(taxis);
+      if (ids.length === 0) {
+        listaTaxisDiv.innerHTML = "<p>No hay taxis conectados.</p>";
+        return;
+      }
+
+      ids.forEach((id) => {
+        const t = taxis[id];
+        const div = document.createElement("div");
+        div.innerHTML = `
+          <p>
+            <strong>${t.nombre}</strong> (ID: ${t.idTaxi})<br />
+            Estado: <span class="badge">${t.estado}</span><br/>
+            Ubicación: ${t.lat ? t.lat.toFixed(5) + ", " + t.lng.toFixed(5) : "sin datos"}
+          </p>
+          <hr/>
+        `;
+        listaTaxisDiv.appendChild(div);
+
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = `${t.nombre} (ID: ${t.idTaxi}) - ${t.estado}`;
+        selectTaxi.appendChild(opt);
+      });
+    }
+
+    function renderServicios(servicios) {
+      listaServiciosDiv.innerHTML = "";
+      if (!servicios || servicios.length === 0) {
+        listaServiciosDiv.innerHTML = "<p>No hay servicios aún.</p>";
+        return;
+      }
+
+      servicios.slice().reverse().forEach((s) => {
+        const div = document.createElement("div");
+        div.innerHTML = `
+          <p>
+            <strong>Servicio #${s.id}</strong><br />
+            Taxi: ${s.taxiNombre}<br/>
+            Dirección: ${s.direccion}<br/>
+            Estado: <span class="badge">${s.estado}</span>
+          </p>
+          <hr/>
+        `;
+        listaServiciosDiv.appendChild(div);
+      });
+    }
+  </script>
+
+  <!-- REEMPLAZA TU_API_KEY_AQUI POR TU API KEY DE GOOGLE MAPS -->
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB_AwwkYMfrvI-mPmQoNAmKA3L25qoBb1s&callback=initMap"></script>
+</body>
+</html>
