@@ -203,50 +203,56 @@
     });
 
     // Audio que llega (todos escuchan todo)
-    socket.on("audioChunk", (packet) => {
-      if (!packet || !packet.buffer) return;
-      const blob = new Blob([packet.buffer], { type: "audio/webm" });
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.play();
-    });
+  socket.on("audioChunk", (packet) => {
+  if (!packet || !packet.blob) return;
+  const url = URL.createObjectURL(packet.blob);
+  const audio = new Audio(url);
+  audio.play();
+});
 
     // ---- PUSH TO TALK TAXI (en chunks) ----
     async function startRecordingTaxi() {
-      if (isRecordingTaxi) return;
+  if (isRecordingTaxi) return;
 
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Tu navegador no soporta grabación de audio.");
-        return;
-      }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert("Tu navegador no soporta grabación de audio.");
+    return;
+  }
 
-      try {
-        mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (e) {
-        alert("No se pudo acceder al micrófono del taxi: " + e.message);
-        return;
-      }
+  if (typeof MediaRecorder === "undefined") {
+    alert("Tu navegador no soporta MediaRecorder (audio).");
+    return;
+  }
 
-      mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
+  try {
+    mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    alert("No se pudo acceder al micrófono del taxi: " + e.message);
+    return;
+  }
 
-      mediaRecorderTaxi.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            socket.emit("audioChunk", {
-              desde: "TAXI " + spIdTaxi.textContent,
-              buffer: reader.result,
-            });
-          };
-          reader.readAsArrayBuffer(e.data);
-        }
-      };
+  try {
+    mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi, {
+      mimeType: "audio/webm;codecs=opus",
+    });
+  } catch (e) {
+    mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
+  }
 
-      mediaRecorderTaxi.start(300);
-      isRecordingTaxi = true;
-      btnMicTaxi.classList.add("recording");
-      micLabelTaxi.style.display = "block";
+  mediaRecorderTaxi.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) {
+      socket.emit("audioChunk", {
+        desde: "TAXI " + spIdTaxi.textContent,
+        blob: e.data,
+      });
     }
+  };
+
+  mediaRecorderTaxi.start(300);
+  isRecordingTaxi = true;
+  btnMicTaxi.classList.add("recording");
+  micLabelTaxi.style.display = "block";
+}
 
     function stopRecordingTaxi() {
       if (!isRecordingTaxi) return;

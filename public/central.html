@@ -223,13 +223,13 @@
     });
 
     // Audio que llega (todos escuchan todo)
-    socket.on("audioChunk", (packet) => {
-      if (!packet || !packet.buffer) return;
-      const blob = new Blob([packet.buffer], { type: "audio/webm" });
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.play();
-    });
+  socket.on("audioChunk", (packet) => {
+  if (!packet || !packet.blob) return;
+  const url = URL.createObjectURL(packet.blob);
+  const audio = new Audio(url);
+  audio.play();
+});
+
 
     btnAsignar.addEventListener("click", () => {
       const socketIdTaxi = selectTaxi.value;
@@ -333,56 +333,49 @@
     }
 
     // -------- PUSH TO TALK CENTRAL (en chunks) --------
-    async function startRecordingCentral() {
-      if (isRecordingCentral) return;
+   async function startRecordingCentral() {
+  if (isRecordingCentral) return;
 
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Tu navegador no soporta grabación de audio.");
-        return;
-      }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert("Tu navegador no soporta grabación de audio.");
+    return;
+  }
 
-      try {
-        mediaStreamCentral = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (e) {
-        alert("No se pudo acceder al micrófono de la central: " + e.message);
-        return;
-      }
+  if (typeof MediaRecorder === "undefined") {
+    alert("Tu navegador no soporta MediaRecorder (audio).");
+    return;
+  }
 
-      mediaRecorderCentral = new MediaRecorder(mediaStreamCentral);
+  try {
+    mediaStreamCentral = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    alert("No se pudo acceder al micrófono de la central: " + e.message);
+    return;
+  }
 
-      mediaRecorderCentral.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            socket.emit("audioChunk", {
-              desde: "CENTRAL",
-              buffer: reader.result, // ArrayBuffer
-            });
-          };
-          reader.readAsArrayBuffer(e.data);
-        }
-      };
+  try {
+    mediaRecorderCentral = new MediaRecorder(mediaStreamCentral, {
+      mimeType: "audio/webm;codecs=opus",
+    });
+  } catch (e) {
+    mediaRecorderCentral = new MediaRecorder(mediaStreamCentral);
+  }
 
-      // Enviar trocitos cada 300ms
-      mediaRecorderCentral.start(300);
-      isRecordingCentral = true;
-      btnMicCentral.classList.add("recording");
-      micLabelCentral.style.display = "block";
+  mediaRecorderCentral.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) {
+      // Enviamos el BLOB directamente
+      socket.emit("audioChunk", {
+        desde: "CENTRAL",
+        blob: e.data,
+      });
     }
+  };
 
-    function stopRecordingCentral() {
-      if (!isRecordingCentral) return;
-      if (mediaRecorderCentral) {
-        mediaRecorderCentral.stop();
-      }
-      if (mediaStreamCentral) {
-        mediaStreamCentral.getTracks().forEach((t) => t.stop());
-        mediaStreamCentral = null;
-      }
-      isRecordingCentral = false;
-      btnMicCentral.classList.remove("recording");
-      micLabelCentral.style.display = "none";
-    }
+  mediaRecorderCentral.start(300); // trocitos cada 300ms
+  isRecordingCentral = true;
+  btnMicCentral.classList.add("recording");
+  micLabelCentral.style.display = "block";
+}
 
     ["mousedown", "touchstart"].forEach((ev) => {
       btnMicCentral.addEventListener(ev, (e) => {
