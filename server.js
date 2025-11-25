@@ -26,7 +26,7 @@ io.on("connection", (socket) => {
       nombre: data.nombre,
       estado: "disponible",
       lat: null,
-      lng: null
+      lng: null,
     };
     console.log("Taxi registrado:", taxis[socket.id]);
     enviarListaTaxis();
@@ -51,7 +51,7 @@ io.on("connection", (socket) => {
       taxiSocketId: data.socketIdTaxi,
       taxiNombre: taxi.nombre,
       direccion: data.direccion,
-      estado: "asignado"
+      estado: "asignado",
     };
 
     servicios.push(servicio);
@@ -79,9 +79,15 @@ io.on("connection", (socket) => {
     io.emit("listaServicios", servicios);
   });
 
-  // Chat central ↔ taxis
+  // Chat texto
   socket.on("mensajeChat", (data) => {
     io.emit("mensajeChat", data);
+  });
+
+  // Audio (push-to-talk)
+  socket.on("audioMensaje", (data) => {
+    // reenviamos a todos; cada cliente filtra con data.para
+    io.emit("audioMensaje", data);
   });
 
   // Desconexión
@@ -103,8 +109,7 @@ app.get("/", (req, res) => {
   res.send("<h1>Sistema de taxis funcionando. Usa /central.html o /taxi.html</h1>");
 });
 
-const PORT = process.env.PORT || 3000;  // usa el puerto de Render o 3000 en local
-
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });

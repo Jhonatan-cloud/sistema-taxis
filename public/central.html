@@ -64,6 +64,14 @@
     </div>
   </div>
 
+  <!-- Botón de micrófono (central) -->
+  <button id="btnMicCentral" class="mic-btn" title="Mantén presionado para hablar">
+    🎤
+  </button>
+  <div id="micLabelCentral" class="mic-label" style="display:none;">
+    Grabando (central)...
+  </div>
+
   <script>
     const socket = io();
 
@@ -96,6 +104,14 @@
     const txtMensaje = document.getElementById("txtMensaje");
     const btnEnviarMensaje = document.getElementById("btnEnviarMensaje");
 
+    // Mic central
+    const btnMicCentral = document.getElementById("btnMicCentral");
+    const micLabelCentral = document.getElementById("micLabelCentral");
+    let mediaStreamCentral = null;
+    let mediaRecorderCentral = null;
+    let audioChunksCentral = [];
+    let isRecordingCentral = false;
+
     let taxis = {};
     let map = null;
     let markers = {};
@@ -109,7 +125,7 @@
       const centroInicial = { lat: -12.046374, lng: -77.042793 }; // Lima aprox
       map = new google.maps.Map(document.getElementById("map"), {
         center: centroInicial,
-        zoom: 12
+        zoom: 12,
       });
       geocoder = new google.maps.Geocoder();
     }
@@ -131,7 +147,7 @@
             position: pos,
             map: map,
             title: `${t.nombre} (ID: ${t.idTaxi})`,
-            icon: "https://maps.gstatic.com/mapfiles/ms2/micons/cabs.png"
+            icon: "https://maps.gstatic.com/mapfiles/ms2/micons/cabs.png",
           });
         } else {
           markers[id].setPosition(pos);
@@ -173,7 +189,7 @@
           map: map,
           path: path,
           strokeColor: "#ffff00",
-          strokeWeight: 4
+          strokeWeight: 4,
         });
       } else {
         polylines[socketIdTaxi].setPath(path);
@@ -204,6 +220,17 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
+    // Recibir audio (central escucha lo que viene "para: central")
+    socket.on("audioMensaje", (data) => {
+      if (data.para !== "central") return;
+      if (!data.audio) return;
+
+      const blob = new Blob([data.audio], { type: "audio/webm" });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+    });
+
     btnAsignar.addEventListener("click", () => {
       const socketIdTaxi = selectTaxi.value;
       const direccion = txtDireccion.value.trim();
@@ -228,7 +255,7 @@
               position: location,
               map: map,
               title: "Destino del servicio",
-              icon: "https://maps.gstatic.com/mapfiles/ms2/micons/flag.png"
+              icon: "https://maps.gstatic.com/mapfiles/ms2/micons/flag.png",
             });
 
             crearOActualizarRuta(socketIdTaxi);
@@ -247,7 +274,7 @@
       socket.emit("mensajeChat", {
         desde: "CENTRAL",
         para: "taxis",
-        mensaje
+        mensaje,
       });
       txtMensaje.value = "";
     });
@@ -289,9 +316,12 @@
         return;
       }
 
-      servicios.slice().reverse().forEach((s) => {
-        const div = document.createElement("div");
-        div.innerHTML = `
+      servicios
+        .slice()
+        .reverse()
+        .forEach((s) => {
+          const div = document.createElement("div");
+          div.innerHTML = `
           <p>
             <strong>Servicio #${s.id}</strong><br />
             Taxi: ${s.taxiNombre}<br/>
@@ -300,12 +330,84 @@
           </p>
           <hr/>
         `;
-        listaServiciosDiv.appendChild(div);
+          listaServiciosDiv.appendChild(div);
+        });
+    }
+
+    // ---- MICRÓFONO CENTRAL (push-to-talk) ----
+    async function initMediaCentral() {
+      if (mediaStreamCentral) return;
+      try {
+        mediaStreamCentral = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        alert("No se pudo acceder al micrófono de la central: " + e.message);
+      }
+    }
+
+    function startRecordingCentral() {
+      if (isRecordingCentral) return;
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("Tu navegador no soporta grabación de audio.");
+        return;
+      }
+
+      initMediaCentral().then(() => {
+        if (!mediaStreamCentral) return;
+
+        audioChunksCentral = [];
+        mediaRecorderCentral = new MediaRecorder(mediaStreamCentral);
+
+        mediaRecorderCentral.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            audioChunksCentral.push(e.data);
+          }
+        };
+
+        mediaRecorderCentral.onstop = () => {
+          const blob = new Blob(audioChunksCentral, { type: "audio/webm" });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            socket.emit("audioMensaje", {
+              rol: "central",
+              para: "taxis",
+              audio: reader.result,
+            });
+          };
+          reader.readAsArrayBuffer(blob);
+        };
+
+        mediaRecorderCentral.start();
+        isRecordingCentral = true;
+        btnMicCentral.classList.add("recording");
+        micLabelCentral.style.display = "block";
       });
     }
+
+    function stopRecordingCentral() {
+      if (!isRecordingCentral || !mediaRecorderCentral) return;
+      mediaRecorderCentral.stop();
+      isRecordingCentral = false;
+      btnMicCentral.classList.remove("recording");
+      micLabelCentral.style.display = "none";
+    }
+
+    ["mousedown", "touchstart"].forEach((ev) => {
+      btnMicCentral.addEventListener(ev, (e) => {
+        e.preventDefault();
+        startRecordingCentral();
+      });
+    });
+
+    ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((ev) => {
+      btnMicCentral.addEventListener(ev, (e) => {
+        e.preventDefault();
+        stopRecordingCentral();
+      });
+    });
   </script>
 
   <!-- REEMPLAZA TU_API_KEY_AQUI POR TU API KEY DE GOOGLE MAPS -->
-  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB_AwwkYMfrvI-mPmQoNAmKA3L25qoBb1s&callback=initMap"></script>
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=TU_API_KEY_AQUI&callback=initMap"></script>
 </body>
 </html>
