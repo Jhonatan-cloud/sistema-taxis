@@ -84,10 +84,10 @@ io.on("connection", (socket) => {
     io.emit("mensajeChat", data);
   });
 
-  // Audio (push-to-talk)
-  socket.on("audioMensaje", (data) => {
-    // reenviamos a todos; cada cliente filtra con data.para
-    io.emit("audioMensaje", data);
+  // Audio en tiempo casi real (todos escuchan a todos)
+  socket.on("audioChunk", (data) => {
+    // data: { desde, buffer(ArrayBuffer) }
+    io.emit("audioChunk", data);
   });
 
   // Desconexión

@@ -50,13 +50,16 @@
     </div>
   </div>
 
-  <!-- Botón de micrófono (taxi) -->
+  <!-- Botón de micrófono (push-to-talk taxi) -->
   <button id="btnMicTaxi" class="mic-btn" title="Mantén presionado para hablar">
     🎤
   </button>
   <div id="micLabelTaxi" class="mic-label" style="display:none;">
-    Grabando (taxi)...
+    Hablando (taxi)...
   </div>
+
+  <!-- Audio remoto taxi -->
+  <audio id="audioTaxi" autoplay style="display:none;"></audio>
 
   <script>
     const socket = io();
@@ -85,15 +88,16 @@
     const txtMensaje = document.getElementById("txtMensaje");
     const btnEnviarMensaje = document.getElementById("btnEnviarMensaje");
 
-    // Mic taxi
     const btnMicTaxi = document.getElementById("btnMicTaxi");
     const micLabelTaxi = document.getElementById("micLabelTaxi");
-    let mediaStreamTaxi = null;
-    let mediaRecorderTaxi = null;
-    let audioChunksTaxi = [];
-    let isRecordingTaxi = false;
+    const audioTaxi = document.getElementById("audioTaxi");
 
     let idServicioActual = null;
+
+    // Mic taxi
+    let mediaStreamTaxi = null;
+    let mediaRecorderTaxi = null;
+    let isRecordingTaxi = false;
 
     btnIngresar.addEventListener("click", () => {
       const idTaxi = txtIdTaxi.value.trim();
@@ -186,7 +190,6 @@
       if (!mensaje) return;
       socket.emit("mensajeChat", {
         desde: "TAXI " + spIdTaxi.textContent,
-        para: "central",
         mensaje,
       });
       txtMensaje.value = "";
@@ -199,28 +202,17 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // Recibir audio (taxi escucha lo que viene "para: taxis")
-    socket.on("audioMensaje", (data) => {
-      if (data.para !== "taxis") return;
-      if (!data.audio) return;
-
-      const blob = new Blob([data.audio], { type: "audio/webm" });
+    // Audio que llega (todos escuchan todo)
+    socket.on("audioChunk", (packet) => {
+      if (!packet || !packet.buffer) return;
+      const blob = new Blob([packet.buffer], { type: "audio/webm" });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.play();
     });
 
-    // ---- MICRÓFONO TAXI (push-to-talk) ----
-    async function initMediaTaxi() {
-      if (mediaStreamTaxi) return;
-      try {
-        mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (e) {
-        alert("No se pudo acceder al micrófono del taxi: " + e.message);
-      }
-    }
-
-    function startRecordingTaxi() {
+    // ---- PUSH TO TALK TAXI (en chunks) ----
+    async function startRecordingTaxi() {
       if (isRecordingTaxi) return;
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -228,41 +220,43 @@
         return;
       }
 
-      initMediaTaxi().then(() => {
-        if (!mediaStreamTaxi) return;
+      try {
+        mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        alert("No se pudo acceder al micrófono del taxi: " + e.message);
+        return;
+      }
 
-        audioChunksTaxi = [];
-        mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
+      mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
 
-        mediaRecorderTaxi.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            audioChunksTaxi.push(e.data);
-          }
-        };
-
-        mediaRecorderTaxi.onstop = () => {
-          const blob = new Blob(audioChunksTaxi, { type: "audio/webm" });
+      mediaRecorderTaxi.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
           const reader = new FileReader();
           reader.onloadend = () => {
-            socket.emit("audioMensaje", {
-              rol: "taxi",
-              para: "central",
-              audio: reader.result,
+            socket.emit("audioChunk", {
+              desde: "TAXI " + spIdTaxi.textContent,
+              buffer: reader.result,
             });
           };
-          reader.readAsArrayBuffer(blob);
-        };
+          reader.readAsArrayBuffer(e.data);
+        }
+      };
 
-        mediaRecorderTaxi.start();
-        isRecordingTaxi = true;
-        btnMicTaxi.classList.add("recording");
-        micLabelTaxi.style.display = "block";
-      });
+      mediaRecorderTaxi.start(300);
+      isRecordingTaxi = true;
+      btnMicTaxi.classList.add("recording");
+      micLabelTaxi.style.display = "block";
     }
 
     function stopRecordingTaxi() {
-      if (!isRecordingTaxi || !mediaRecorderTaxi) return;
-      mediaRecorderTaxi.stop();
+      if (!isRecordingTaxi) return;
+      if (mediaRecorderTaxi) {
+        mediaRecorderTaxi.stop();
+      }
+      if (mediaStreamTaxi) {
+        mediaStreamTaxi.getTracks().forEach((t) => t.stop());
+        mediaStreamTaxi = null;
+      }
       isRecordingTaxi = false;
       btnMicTaxi.classList.remove("recording");
       micLabelTaxi.style.display = "none";
