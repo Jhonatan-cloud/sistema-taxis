@@ -103,7 +103,8 @@ app.get("/", (req, res) => {
   res.send("<h1>Sistema de taxis funcionando. Usa /central.html o /taxi.html</h1>");
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;  // usa el puerto de Render o 3000 en local
+
 server.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
