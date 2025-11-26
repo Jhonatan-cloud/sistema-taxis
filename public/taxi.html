@@ -200,15 +200,14 @@
     });
 
     // Recibir audio (taxi escucha lo que viene "para: taxis")
-    socket.on("audioMensaje", (data) => {
-      if (data.para !== "taxis") return;
-      if (!data.audio) return;
+socket.on("audioMensaje", (data) => {
+  if (!data.audio) return;
 
-      const blob = new Blob([data.audio], { type: "audio/webm" });
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.play();
-    });
+  const blob = new Blob([data.audio], { type: "audio/webm" });
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.play();
+});
 
     // ---- MICRÓFONO TAXI (push-to-talk) ----
     async function initMediaTaxi() {
@@ -240,18 +239,15 @@
           }
         };
 
-        mediaRecorderTaxi.onstop = () => {
-          const blob = new Blob(audioChunksTaxi, { type: "audio/webm" });
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            socket.emit("audioMensaje", {
-              rol: "taxi",
-              para: "central",
-              audio: reader.result,
-            });
-          };
-          reader.readAsArrayBuffer(blob);
-        };
+mediaRecorderTaxi.onstop = () => {
+  const blob = new Blob(audioChunksTaxi, { type: "audio/webm" });
+
+  socket.emit("audioMensaje", {
+    rol: "taxi",
+    para: "central",
+    audio: blob,
+  });
+};
 
         mediaRecorderTaxi.start();
         isRecordingTaxi = true;

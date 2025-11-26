@@ -222,14 +222,12 @@
 
     // Recibir audio (central escucha lo que viene "para: central")
     socket.on("audioMensaje", (data) => {
-      if (data.para !== "central") return;
-      if (!data.audio) return;
-
-      const blob = new Blob([data.audio], { type: "audio/webm" });
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.play();
-    });
+  if (!data.audio) return;
+  const blob = new Blob([data.audio], { type: "audio/webm" });
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.play();
+});
 
     btnAsignar.addEventListener("click", () => {
       const socketIdTaxi = selectTaxi.value;
@@ -364,18 +362,15 @@
           }
         };
 
-        mediaRecorderCentral.onstop = () => {
-          const blob = new Blob(audioChunksCentral, { type: "audio/webm" });
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            socket.emit("audioMensaje", {
-              rol: "central",
-              para: "taxis",
-              audio: reader.result,
-            });
-          };
-          reader.readAsArrayBuffer(blob);
-        };
+mediaRecorderCentral.onstop = () => {
+  const blob = new Blob(audioChunksCentral, { type: "audio/webm" });
+
+  socket.emit("audioMensaje", {
+    rol: "central",
+    para: "taxis",
+    audio: blob,
+  });
+};
 
         mediaRecorderCentral.start();
         isRecordingCentral = true;
