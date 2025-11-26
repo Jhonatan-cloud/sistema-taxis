@@ -64,16 +64,13 @@
     </div>
   </div>
 
-  <!-- Botón de micrófono (push-to-talk) -->
+  <!-- Botón de micrófono (central) -->
   <button id="btnMicCentral" class="mic-btn" title="Mantén presionado para hablar">
     🎤
   </button>
   <div id="micLabelCentral" class="mic-label" style="display:none;">
     Hablando (central)...
   </div>
-
-  <!-- Audio remoto (para reproducir lo que hablan otros) -->
-  <audio id="audioCentral" autoplay style="display:none;"></audio>
 
   <script>
     const socket = io();
@@ -88,7 +85,6 @@
     btnLogin.addEventListener("click", () => {
       const u = txtUser.value.trim();
       const p = txtPass.value.trim();
-
       if (u === "TAXISPERU" && p === "PERU123") {
         loginContainer.style.display = "none";
         appContainer.style.display = "block";
@@ -109,7 +105,6 @@
 
     const btnMicCentral = document.getElementById("btnMicCentral");
     const micLabelCentral = document.getElementById("micLabelCentral");
-    const audioCentral = document.getElementById("audioCentral");
 
     let taxis = {};
     let map = null;
@@ -119,14 +114,14 @@
     let destMarkers = {};
     let polylines = {};
 
-    // Mic central
+    // AUDIO (central)
     let mediaStreamCentral = null;
     let mediaRecorderCentral = null;
     let isRecordingCentral = false;
 
-    // ---- MAPA ----
+    // MAPA
     function initMap() {
-      const centroInicial = { lat: -12.046374, lng: -77.042793 }; // Lima aprox
+      const centroInicial = { lat: -12.046374, lng: -77.042793 };
       map = new google.maps.Map(document.getElementById("map"), {
         center: centroInicial,
         zoom: 12,
@@ -136,10 +131,9 @@
 
     function actualizarMarkers() {
       if (!map) return;
+      const ids = Object.keys(taxis);
 
-      const idsActuales = Object.keys(taxis);
-
-      idsActuales.forEach((id) => {
+      ids.forEach((id) => {
         const t = taxis[id];
         if (t.lat == null || t.lng == null) return;
 
@@ -148,7 +142,7 @@
         if (!markers[id]) {
           markers[id] = new google.maps.Marker({
             position: pos,
-            map: map,
+            map,
             title: `${t.nombre} (ID: ${t.idTaxi})`,
             icon: "https://maps.gstatic.com/mapfiles/ms2/micons/cabs.png",
           });
@@ -178,27 +172,25 @@
       });
     }
 
-    function crearOActualizarRuta(socketIdTaxi) {
-      if (!markers[socketIdTaxi] || !destinos[socketIdTaxi]) return;
-
-      const origen = markers[socketIdTaxi].getPosition();
-      const destino = destinos[socketIdTaxi];
-
+    function crearOActualizarRuta(idTaxi) {
+      if (!markers[idTaxi] || !destinos[idTaxi]) return;
+      const origen = markers[idTaxi].getPosition();
+      const destino = destinos[idTaxi];
       const path = [origen, destino];
 
-      if (!polylines[socketIdTaxi]) {
-        polylines[socketIdTaxi] = new google.maps.Polyline({
-          map: map,
-          path: path,
+      if (!polylines[idTaxi]) {
+        polylines[idTaxi] = new google.maps.Polyline({
+          map,
+          path,
           strokeColor: "#ffff00",
           strokeWeight: 4,
         });
       } else {
-        polylines[socketIdTaxi].setPath(path);
+        polylines[idTaxi].setPath(path);
       }
     }
 
-    // ---- SOCKETS ----
+    // SOCKETS
     socket.on("listaTaxis", (data) => {
       taxis = data;
       renderTaxis();
@@ -222,20 +214,21 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // Audio que llega (todos escuchan todo)
-  socket.on("audioChunk", (packet) => {
-  if (!packet || !packet.blob) return;
-  const url = URL.createObjectURL(packet.blob);
-  const audio = new Audio(url);
-  audio.play();
-});
+    // AUDIO QUE LLEGA (TODOS OYEN TODO)
+    socket.on("audioChunk", (data) => {
+      if (!data || !data.chunk) return;
+      const blob = data.chunk;
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+    });
 
-
+    // ASIGNAR SERVICIO
     btnAsignar.addEventListener("click", () => {
       const socketIdTaxi = selectTaxi.value;
       const direccion = txtDireccion.value.trim();
       if (!socketIdTaxi || !direccion) {
-        alert("Selecciona un taxi y escribe una dirección.");
+        alert("Selecciona un taxi y escribe dirección.");
         return;
       }
 
@@ -252,7 +245,7 @@
             }
             destMarkers[socketIdTaxi] = new google.maps.Marker({
               position: location,
-              map: map,
+              map,
               title: "Destino del servicio",
               icon: "https://maps.gstatic.com/mapfiles/ms2/micons/flag.png",
             });
@@ -267,13 +260,11 @@
       txtDireccion.value = "";
     });
 
+    // CHAT
     btnEnviarMensaje.addEventListener("click", () => {
       const mensaje = txtMensaje.value.trim();
       if (!mensaje) return;
-      socket.emit("mensajeChat", {
-        desde: "CENTRAL",
-        mensaje,
-      });
+      socket.emit("mensajeChat", { desde: "CENTRAL", mensaje });
       txtMensaje.value = "";
     });
 
@@ -294,7 +285,9 @@
           <p>
             <strong>${t.nombre}</strong> (ID: ${t.idTaxi})<br />
             Estado: <span class="badge">${t.estado}</span><br/>
-            Ubicación: ${t.lat ? t.lat.toFixed(5) + ", " + t.lng.toFixed(5) : "sin datos"}
+            Ubicación: ${
+              t.lat ? t.lat.toFixed(5) + ", " + t.lng.toFixed(5) : "sin datos"
+            }
           </p>
           <hr/>
         `;
@@ -320,62 +313,81 @@
         .forEach((s) => {
           const div = document.createElement("div");
           div.innerHTML = `
-          <p>
-            <strong>Servicio #${s.id}</strong><br />
-            Taxi: ${s.taxiNombre}<br/>
-            Dirección: ${s.direccion}<br/>
-            Estado: <span class="badge">${s.estado}</span>
-          </p>
-          <hr/>
-        `;
+            <p>
+              <strong>Servicio #${s.id}</strong><br />
+              Taxi: ${s.taxiNombre}<br/>
+              Dirección: ${s.direccion}<br/>
+              Estado: <span class="badge">${s.estado}</span>
+            </p>
+            <hr/>
+          `;
           listaServiciosDiv.appendChild(div);
         });
     }
 
-    // -------- PUSH TO TALK CENTRAL (en chunks) --------
-   async function startRecordingCentral() {
-  if (isRecordingCentral) return;
+    // PUSH TO TALK CENTRAL
+    async function startRecordingCentral() {
+      if (isRecordingCentral) return;
 
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    alert("Tu navegador no soporta grabación de audio.");
-    return;
-  }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("Tu navegador no soporta audio.");
+        return;
+      }
+      if (typeof MediaRecorder === "undefined") {
+        alert("Tu navegador no soporta MediaRecorder.");
+        return;
+      }
 
-  if (typeof MediaRecorder === "undefined") {
-    alert("Tu navegador no soporta MediaRecorder (audio).");
-    return;
-  }
+      try {
+        mediaStreamCentral = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        alert("No se pudo acceder al micrófono: " + e.message);
+        return;
+      }
 
-  try {
-    mediaStreamCentral = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (e) {
-    alert("No se pudo acceder al micrófono de la central: " + e.message);
-    return;
-  }
+      try {
+        mediaRecorderCentral = new MediaRecorder(mediaStreamCentral, {
+          mimeType: "audio/webm;codecs=opus",
+        });
+      } catch (e) {
+        mediaRecorderCentral = new MediaRecorder(mediaStreamCentral);
+      }
 
-  try {
-    mediaRecorderCentral = new MediaRecorder(mediaStreamCentral, {
-      mimeType: "audio/webm;codecs=opus",
-    });
-  } catch (e) {
-    mediaRecorderCentral = new MediaRecorder(mediaStreamCentral);
-  }
+      mediaRecorderCentral.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          socket.emit("audioChunk", {
+            desde: "CENTRAL",
+            chunk: ev.data,
+          });
+        }
+      };
 
-  mediaRecorderCentral.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) {
-      // Enviamos el BLOB directamente
-      socket.emit("audioChunk", {
-        desde: "CENTRAL",
-        blob: e.data,
-      });
+      mediaRecorderCentral.onstop = () => {
+        if (mediaStreamCentral) {
+          mediaStreamCentral.getTracks().forEach((t) => t.stop());
+          mediaStreamCentral = null;
+        }
+      };
+
+      mediaRecorderCentral.start(300); // trocitos cada 300ms
+      isRecordingCentral = true;
+      btnMicCentral.classList.add("recording");
+      micLabelCentral.style.display = "block";
     }
-  };
 
-  mediaRecorderCentral.start(300); // trocitos cada 300ms
-  isRecordingCentral = true;
-  btnMicCentral.classList.add("recording");
-  micLabelCentral.style.display = "block";
-}
+    function stopRecordingCentral() {
+      if (!isRecordingCentral) return;
+      try {
+        if (mediaRecorderCentral && mediaRecorderCentral.state !== "inactive") {
+          mediaRecorderCentral.stop();
+        }
+      } catch (e) {
+        console.log("Error al detener grabación central:", e);
+      }
+      isRecordingCentral = false;
+      btnMicCentral.classList.remove("recording");
+      micLabelCentral.style.display = "none";
+    }
 
     ["mousedown", "touchstart"].forEach((ev) => {
       btnMicCentral.addEventListener(ev, (e) => {
@@ -392,7 +404,7 @@
     });
   </script>
 
-  <!-- PON AQUÍ TU API KEY -->
+  <!-- PON AQUÍ TU API KEY DE MAPS -->
   <script async defer src="https://maps.googleapis.com/maps/api/js?key=TU_API_KEY_AQUI&callback=initMap"></script>
 </body>
 </html>

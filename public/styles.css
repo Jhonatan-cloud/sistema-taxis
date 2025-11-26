@@ -61,7 +61,7 @@ button {
   margin-top: 80px;
 }
 
-/* Botón flotante de micrófono (push-to-talk) */
+/* Botón flotante de micrófono */
 .mic-btn {
   position: fixed;
   right: 20px;

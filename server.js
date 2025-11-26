@@ -1,5 +1,6 @@
 // server.js
 const express = require("express");
+const path = require("path");
 const http = require("http");
 const { Server } = require("socket.io");
 
@@ -7,19 +8,18 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Servir carpeta "public"
-app.use(express.static("public"));
+// Servir carpeta public
+app.use(express.static(path.join(__dirname, "public")));
 
 // taxis[socketId] = { idTaxi, nombre, estado, lat, lng }
 let taxis = {};
-
-// servicios: { id, taxiSocketId, taxiNombre, direccion, estado }
 let servicios = [];
 
+// CONEXIÓN SOCKET.IO
 io.on("connection", (socket) => {
-  console.log("Nuevo cliente conectado:", socket.id);
+  console.log("Cliente conectado:", socket.id);
 
-  // Registro de taxi desde taxi.html
+  // Registrar taxi
   socket.on("registrarTaxi", (data) => {
     taxis[socket.id] = {
       idTaxi: data.idTaxi,
@@ -28,11 +28,10 @@ io.on("connection", (socket) => {
       lat: null,
       lng: null,
     };
-    console.log("Taxi registrado:", taxis[socket.id]);
     enviarListaTaxis();
   });
 
-  // Actualiza ubicación del taxi
+  // Actualizar ubicación del taxi
   socket.on("actualizarUbicacion", (data) => {
     if (taxis[socket.id]) {
       taxis[socket.id].lat = data.lat;
@@ -41,7 +40,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Central asigna servicio
+  // Asignar servicio desde central
   socket.on("asignarServicio", (data) => {
     const taxi = taxis[data.socketIdTaxi];
     if (!taxi) return;
@@ -57,14 +56,13 @@ io.on("connection", (socket) => {
     servicios.push(servicio);
     taxi.estado = "ocupado";
 
-    // Enviar servicio al taxi
     io.to(data.socketIdTaxi).emit("nuevoServicio", servicio);
 
     enviarListaTaxis();
     io.emit("listaServicios", servicios);
   });
 
-  // Taxi cambia estado del servicio
+  // Cambiar estado de servicio (taxi)
   socket.on("estadoServicio", (data) => {
     const servicio = servicios.find((s) => s.id === data.idServicio);
     if (!servicio) return;
@@ -84,11 +82,11 @@ io.on("connection", (socket) => {
     io.emit("mensajeChat", data);
   });
 
- // Audio en tiempo casi real (todos escuchan a todos)
-socket.on("audioChunk", (data) => {
-  // data: { desde, blob }
-  io.emit("audioChunk", data); // reenviamos el blob
-});
+  // AUDIO PUSH-TO-TALK
+  // data: { desde, chunk } donde chunk es un Blob que Socket.io envía como binario
+  socket.on("audioChunk", (data) => {
+    io.emit("audioChunk", data); // todos escuchan todo
+  });
 
   // Desconexión
   socket.on("disconnect", () => {
@@ -104,12 +102,12 @@ function enviarListaTaxis() {
   io.emit("listaTaxis", taxis);
 }
 
-// Ruta raíz (solo info)
+// Ruta raíz
 app.get("/", (req, res) => {
-  res.send("<h1>Sistema de taxis funcionando. Usa /central.html o /taxi.html</h1>");
+  res.send("<h1>Sistema de taxis activo. Usa /central.html o /taxi.html</h1>");
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
+  console.log("Servidor corriendo en puerto", PORT);
 });
