@@ -50,12 +50,12 @@
     </div>
   </div>
 
-  <!-- Botón de micrófono taxi -->
+  <!-- Botón de micrófono (taxi) -->
   <button id="btnMicTaxi" class="mic-btn" title="Mantén presionado para hablar">
     🎤
   </button>
   <div id="micLabelTaxi" class="mic-label" style="display:none;">
-    Hablando (taxi)...
+    Grabando (taxi)...
   </div>
 
   <script>
@@ -85,17 +85,16 @@
     const txtMensaje = document.getElementById("txtMensaje");
     const btnEnviarMensaje = document.getElementById("btnEnviarMensaje");
 
+    // Mic taxi
     const btnMicTaxi = document.getElementById("btnMicTaxi");
     const micLabelTaxi = document.getElementById("micLabelTaxi");
+    let mediaStreamTaxi = null;
+    let mediaRecorderTaxi = null;
+    let audioChunksTaxi = [];
+    let isRecordingTaxi = false;
 
     let idServicioActual = null;
 
-    // AUDIO taxi
-    let mediaStreamTaxi = null;
-    let mediaRecorderTaxi = null;
-    let isRecordingTaxi = false;
-
-    // LOGIN TAXI
     btnIngresar.addEventListener("click", () => {
       const idTaxi = txtIdTaxi.value.trim();
       const nombre = txtNombre.value.trim();
@@ -115,7 +114,7 @@
       iniciarGeolocalizacion();
     });
 
-    // SERVICIO
+    // Recibir servicio desde la central
     socket.on("nuevoServicio", (servicio) => {
       idServicioActual = servicio.id;
       infoServicioDiv.innerHTML = `
@@ -154,7 +153,7 @@
       spEstado.textContent = estado;
     }
 
-    // GEOLOCALIZACIÓN
+    // Geolocalización real
     function iniciarGeolocalizacion() {
       if ("geolocation" in navigator) {
         navigator.geolocation.watchPosition(
@@ -164,7 +163,7 @@
             pUbicacion.textContent = `Lat: ${lat.toFixed(5)} - Lng: ${lng.toFixed(5)}`;
             socket.emit("actualizarUbicacion", { lat, lng });
           },
-          () => {
+          (err) => {
             pUbicacion.textContent = "No se pudo obtener la ubicación real. Usa 'Simular ubicación'.";
           }
         );
@@ -173,6 +172,7 @@
       }
     }
 
+    // Simular ubicación (para probar en PC)
     btnSimularUbicacion.addEventListener("click", () => {
       const lat = -12.04637 + (Math.random() - 0.5) / 100;
       const lng = -77.04279 + (Math.random() - 0.5) / 100;
@@ -180,11 +180,15 @@
       socket.emit("actualizarUbicacion", { lat, lng });
     });
 
-    // CHAT
+    // Chat texto
     btnEnviarMensaje.addEventListener("click", () => {
       const mensaje = txtMensaje.value.trim();
       if (!mensaje) return;
-      socket.emit("mensajeChat", { desde: "TAXI " + spIdTaxi.textContent, mensaje });
+      socket.emit("mensajeChat", {
+        desde: "TAXI " + spIdTaxi.textContent,
+        para: "central",
+        mensaje,
+      });
       txtMensaje.value = "";
     });
 
@@ -195,74 +199,70 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // AUDIO QUE LLEGA (TODOS OYEN TODO)
-    socket.on("audioChunk", (data) => {
-      if (!data || !data.chunk) return;
-      const blob = data.chunk;
+    // Recibir audio (taxi escucha lo que viene "para: taxis")
+    socket.on("audioMensaje", (data) => {
+      if (data.para !== "taxis") return;
+      if (!data.audio) return;
+
+      const blob = new Blob([data.audio], { type: "audio/webm" });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.play();
     });
 
-    // PUSH TO TALK TAXI
-    async function startRecordingTaxi() {
-      if (isRecordingTaxi) return;
-
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Tu navegador no soporta audio.");
-        return;
-      }
-      if (typeof MediaRecorder === "undefined") {
-        alert("Tu navegador no soporta MediaRecorder.");
-        return;
-      }
-
+    // ---- MICRÓFONO TAXI (push-to-talk) ----
+    async function initMediaTaxi() {
+      if (mediaStreamTaxi) return;
       try {
         mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (e) {
-        alert("No se pudo acceder al micrófono: " + e.message);
+        alert("No se pudo acceder al micrófono del taxi: " + e.message);
+      }
+    }
+
+    function startRecordingTaxi() {
+      if (isRecordingTaxi) return;
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("Tu navegador no soporta grabación de audio.");
         return;
       }
 
-      try {
-        mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi, {
-          mimeType: "audio/webm;codecs=opus",
-        });
-      } catch (e) {
+      initMediaTaxi().then(() => {
+        if (!mediaStreamTaxi) return;
+
+        audioChunksTaxi = [];
         mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
-      }
 
-      mediaRecorderTaxi.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0) {
-          socket.emit("audioChunk", {
-            desde: "TAXI " + spIdTaxi.textContent,
-            chunk: ev.data,
-          });
-        }
-      };
+        mediaRecorderTaxi.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            audioChunksTaxi.push(e.data);
+          }
+        };
 
-      mediaRecorderTaxi.onstop = () => {
-        if (mediaStreamTaxi) {
-          mediaStreamTaxi.getTracks().forEach((t) => t.stop());
-          mediaStreamTaxi = null;
-        }
-      };
+        mediaRecorderTaxi.onstop = () => {
+          const blob = new Blob(audioChunksTaxi, { type: "audio/webm" });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            socket.emit("audioMensaje", {
+              rol: "taxi",
+              para: "central",
+              audio: reader.result,
+            });
+          };
+          reader.readAsArrayBuffer(blob);
+        };
 
-      mediaRecorderTaxi.start(300);
-      isRecordingTaxi = true;
-      btnMicTaxi.classList.add("recording");
-      micLabelTaxi.style.display = "block";
+        mediaRecorderTaxi.start();
+        isRecordingTaxi = true;
+        btnMicTaxi.classList.add("recording");
+        micLabelTaxi.style.display = "block";
+      });
     }
 
     function stopRecordingTaxi() {
-      if (!isRecordingTaxi) return;
-      try {
-        if (mediaRecorderTaxi && mediaRecorderTaxi.state !== "inactive") {
-          mediaRecorderTaxi.stop();
-        }
-      } catch (e) {
-        console.log("Error al detener grabación taxi:", e);
-      }
+      if (!isRecordingTaxi || !mediaRecorderTaxi) return;
+      mediaRecorderTaxi.stop();
       isRecordingTaxi = false;
       btnMicTaxi.classList.remove("recording");
       micLabelTaxi.style.display = "none";
