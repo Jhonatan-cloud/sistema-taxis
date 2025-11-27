@@ -223,11 +223,18 @@
     // Recibir audio (central escucha lo que viene "para: central")
     socket.on("audioMensaje", (data) => {
   if (!data.audio) return;
+
+  // 🚫 Si el audio viene de la propia central, no lo reproducimos
+  if (data.rol === "central") {
+    return;
+  }
+
   const blob = new Blob([data.audio], { type: "audio/webm" });
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
   audio.play();
 });
+
 
     btnAsignar.addEventListener("click", () => {
       const socketIdTaxi = selectTaxi.value;
