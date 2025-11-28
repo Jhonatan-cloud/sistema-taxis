@@ -199,26 +199,34 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // Recibir audio (taxi escucha lo que viene "para: taxis")
+    // Recibir audio (taxi escucha TODOS los audios menos el suyo)
     socket.on("audioMensaje", (data) => {
-    if (!data.audio) return;
+      if (!data.audio) return;
 
-    // 🚫 Si el audio viene del mismo taxi, NO reproducirlo
-    if (data.rol === "taxi" && data.idTaxi === spIdTaxi.textContent) {
+      // 🚫 Si el audio viene del mismo taxi, NO reproducirlo
+      if (data.rol === "taxi" && data.idTaxi === spIdTaxi.textContent) {
         return;
-    }
+      }
 
-    const blob = new Blob([data.audio], { type: "audio/webm" });
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.play();
-});
+      const blob = new Blob([data.audio], { type: "audio/webm" });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+    });
 
     // ---- MICRÓFONO TAXI (push-to-talk) ----
     async function initMediaTaxi() {
       if (mediaStreamTaxi) return;
       try {
-        mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // >>> CAMBIO: audio optimizado (mono, 16kHz, cancelación de eco)
+        mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            sampleRate: 16000,
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+        });
       } catch (e) {
         alert("No se pudo acceder al micrófono del taxi: " + e.message);
       }
@@ -238,27 +246,20 @@
         audioChunksTaxi = [];
         mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
 
+        // >>> CAMBIO: modo radio, se envían chunks mientras se graba
         mediaRecorderTaxi.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            audioChunksTaxi.push(e.data);
+          if (e.data && e.data.size > 0) {
+            socket.emit("audioMensaje", {
+              rol: "taxi",
+              para: "central",
+              idTaxi: spIdTaxi.textContent, // para saber quién habló
+              audio: e.data,
+            });
           }
         };
 
-        mediaRecorderTaxi.onstop = () => {
-          const blob = new Blob(audioChunksTaxi, { type: "audio/webm" });
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            socket.emit("audioMensaje", {
-            rol: "taxi",
-            para: "central",
-            idTaxi: spIdTaxi.textContent,   // ← enviamos su ID
-            audio: blob,
-          });
-          };
-          reader.readAsArrayBuffer(blob);
-        };
-
-        mediaRecorderTaxi.start();
+        // 200 ms por chunk
+        mediaRecorderTaxi.start(200);
         isRecordingTaxi = true;
         btnMicTaxi.classList.add("recording");
         micLabelTaxi.style.display = "block";

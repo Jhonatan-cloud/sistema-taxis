@@ -220,21 +220,20 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // Recibir audio (central escucha lo que viene "para: central")
+    // Recibir audio (central escucha a todos menos a sí misma)
     socket.on("audioMensaje", (data) => {
-  if (!data.audio) return;
+      if (!data.audio) return;
 
-  // 🚫 Si el audio viene de la propia central, no lo reproducimos
-  if (data.rol === "central") {
-    return;
-  }
+      // 🚫 Si el audio viene de la propia central, no lo reproducimos
+      if (data.rol === "central") {
+        return;
+      }
 
-  const blob = new Blob([data.audio], { type: "audio/webm" });
-  const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
-  audio.play();
-});
-
+      const blob = new Blob([data.audio], { type: "audio/webm" });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+    });
 
     btnAsignar.addEventListener("click", () => {
       const socketIdTaxi = selectTaxi.value;
@@ -343,7 +342,15 @@
     async function initMediaCentral() {
       if (mediaStreamCentral) return;
       try {
-        mediaStreamCentral = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // >>> CAMBIO: audio optimizado (mono, 16 kHz, cancelación de eco)
+        mediaStreamCentral = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            sampleRate: 16000,
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+        });
       } catch (e) {
         alert("No se pudo acceder al micrófono de la central: " + e.message);
       }
@@ -363,23 +370,19 @@
         audioChunksCentral = [];
         mediaRecorderCentral = new MediaRecorder(mediaStreamCentral);
 
+        // >>> CAMBIO: modo radio, se envían chunks mientras se graba
         mediaRecorderCentral.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            audioChunksCentral.push(e.data);
+          if (e.data && e.data.size > 0) {
+            socket.emit("audioMensaje", {
+              rol: "central",
+              para: "taxis",
+              audio: e.data,
+            });
           }
         };
 
-mediaRecorderCentral.onstop = () => {
-  const blob = new Blob(audioChunksCentral, { type: "audio/webm" });
-
-  socket.emit("audioMensaje", {
-    rol: "central",
-    para: "taxis",
-    audio: blob,
-  });
-};
-
-        mediaRecorderCentral.start();
+        // 200 ms por chunk ≈ radio rápida
+        mediaRecorderCentral.start(200);
         isRecordingCentral = true;
         btnMicCentral.classList.add("recording");
         micLabelCentral.style.display = "block";
