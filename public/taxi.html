@@ -58,6 +58,11 @@
     Grabando (taxi)...
   </div>
 
+  <!-- Indicador de quién está hablando -->
+  <div id="lblHablandoTaxi" class="mic-label" style="left: 20px; bottom: 20px; display:none;">
+    Nadie hablando
+  </div>
+
   <script>
     const socket = io();
 
@@ -88,6 +93,7 @@
     // Mic taxi
     const btnMicTaxi = document.getElementById("btnMicTaxi");
     const micLabelTaxi = document.getElementById("micLabelTaxi");
+    const lblHablandoTaxi = document.getElementById("lblHablandoTaxi");
     let mediaStreamTaxi = null;
     let mediaRecorderTaxi = null;
     let isRecordingTaxi = false;
@@ -199,8 +205,8 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // Recibir audio (el server NO reenvía al que habla)
-    socket.on("audioChunk", (data) => {
+    // 🔊 Recibir audio (el server NO reenvía al que habla)
+    socket.on("audioMensaje", (data) => {
       if (!data || !data.audio) return;
       const blob = new Blob([data.audio], { type: "audio/webm" });
       const url = URL.createObjectURL(blob);
@@ -208,35 +214,40 @@
       audio.play();
     });
 
-    // Eventos PTT
-    socket.on("ptt:busy", () => {
-      if (!tengoTurnoTaxi && !isRecordingTaxi) {
-        btnMicTaxi.disabled = true;
-        micLabelTaxi.textContent = "Canal ocupado...";
-        micLabelTaxi.style.display = "block";
+    // 🟢 Saber quién está hablando
+    socket.on("ptt:speaker", (info) => {
+      let texto = "Hablando: ";
+      if (info.rol === "central") {
+        texto += "CENTRAL";
+      } else if (info.rol === "taxi") {
+        texto += `Taxi ${info.idTaxi || ""} ${info.nombre ? "- " + info.nombre : ""}`;
+      } else {
+        texto += "Desconocido";
       }
+      lblHablandoTaxi.textContent = texto;
+      lblHablandoTaxi.style.display = "block";
     });
 
-    socket.on("ptt:free", () => {
-      if (!isRecordingTaxi) {
-        btnMicTaxi.disabled = false;
-        micLabelTaxi.style.display = "none";
-      }
+    socket.on("ptt:released", () => {
+      lblHablandoTaxi.style.display = "none";
     });
 
+    // Eventos PTT para el taxi
     socket.on("ptt:granted", () => {
       tengoTurnoTaxi = true;
-      btnMicTaxi.disabled = false;
       iniciarGrabacionTaxi();
     });
 
     socket.on("ptt:denied", () => {
       tengoTurnoTaxi = false;
       if (!isRecordingTaxi) {
-        btnMicTaxi.disabled = true;
         micLabelTaxi.textContent = "Canal ocupado...";
         micLabelTaxi.style.display = "block";
+        setTimeout(() => {
+          if (!isRecordingTaxi) micLabelTaxi.style.display = "none";
+        }, 1000);
       }
+      btnMicTaxi.disabled = false;
     });
 
     // ---- MICRÓFONO TAXI (PTT) ----
@@ -264,7 +275,7 @@
 
         mediaRecorderTaxi.ondataavailable = (e) => {
           if (e.data && e.data.size > 0 && tengoTurnoTaxi) {
-            socket.emit("audioChunk", {
+            socket.emit("audioMensaje", {
               rol: "taxi",
               idTaxi: spIdTaxi.textContent,
               audio: e.data,
@@ -272,11 +283,12 @@
           }
         };
 
-        mediaRecorderTaxi.start(200);
+        mediaRecorderTaxi.start(200); // chunks cada 200ms
         isRecordingTaxi = true;
         btnMicTaxi.classList.add("recording");
         micLabelTaxi.textContent = "Grabando (taxi)...";
         micLabelTaxi.style.display = "block";
+        btnMicTaxi.disabled = false;
       });
     }
 
@@ -286,6 +298,7 @@
       socket.emit("ptt:request", {
         rol: "taxi",
         idTaxi: spIdTaxi.textContent,
+        nombre: spNombre.textContent,
       });
     }
 

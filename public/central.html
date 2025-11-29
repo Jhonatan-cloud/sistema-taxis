@@ -72,6 +72,11 @@
     Grabando (central)...
   </div>
 
+  <!-- Indicador de quién está hablando -->
+  <div id="lblHablandoCentral" class="mic-label" style="left: 20px; bottom: 20px; display:none;">
+    Nadie hablando
+  </div>
+
   <script>
     const socket = io();
 
@@ -107,6 +112,7 @@
     // Mic central
     const btnMicCentral = document.getElementById("btnMicCentral");
     const micLabelCentral = document.getElementById("micLabelCentral");
+    const lblHablandoCentral = document.getElementById("lblHablandoCentral");
     let mediaStreamCentral = null;
     let mediaRecorderCentral = null;
     let isRecordingCentral = false;
@@ -122,7 +128,7 @@
 
     // ---- MAPA ----
     function initMap() {
-      const centroInicial = { lat: -12.046374, lng: -77.042793 };
+      const centroInicial = { lat: -12.046374, lng: -77.042793 }; // Lima aprox
       map = new google.maps.Map(document.getElementById("map"), {
         center: centroInicial,
         zoom: 12,
@@ -218,8 +224,8 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // Recibir audio (el server NO reenvía al que habla)
-    socket.on("audioChunk", (data) => {
+    // 🔊 Recibir audio (el server NO reenvía al que habla)
+    socket.on("audioMensaje", (data) => {
       if (!data || !data.audio) return;
       const blob = new Blob([data.audio], { type: "audio/webm" });
       const url = URL.createObjectURL(blob);
@@ -227,35 +233,40 @@
       audio.play();
     });
 
-    // Eventos PTT (para info visual, no mil flags)
-    socket.on("ptt:busy", () => {
-      if (!tengoTurnoCentral && !isRecordingCentral) {
-        btnMicCentral.disabled = true;
-        micLabelCentral.textContent = "Canal ocupado...";
-        micLabelCentral.style.display = "block";
+    // 🟢 Saber quién está hablando
+    socket.on("ptt:speaker", (info) => {
+      let texto = "Hablando: ";
+      if (info.rol === "central") {
+        texto += "CENTRAL";
+      } else if (info.rol === "taxi") {
+        texto += `Taxi ${info.idTaxi || ""} ${info.nombre ? "- " + info.nombre : ""}`;
+      } else {
+        texto += "Desconocido";
       }
+      lblHablandoCentral.textContent = texto;
+      lblHablandoCentral.style.display = "block";
     });
 
-    socket.on("ptt:free", () => {
-      if (!isRecordingCentral) {
-        btnMicCentral.disabled = false;
-        micLabelCentral.style.display = "none";
-      }
+    socket.on("ptt:released", () => {
+      lblHablandoCentral.style.display = "none";
     });
 
+    // Eventos de turno para la central
     socket.on("ptt:granted", () => {
       tengoTurnoCentral = true;
-      btnMicCentral.disabled = false;
       iniciarGrabacionCentral();
     });
 
     socket.on("ptt:denied", () => {
       tengoTurnoCentral = false;
       if (!isRecordingCentral) {
-        btnMicCentral.disabled = true;
         micLabelCentral.textContent = "Canal ocupado...";
         micLabelCentral.style.display = "block";
+        setTimeout(() => {
+          if (!isRecordingCentral) micLabelCentral.style.display = "none";
+        }, 1000);
       }
+      btnMicCentral.disabled = false;
     });
 
     btnAsignar.addEventListener("click", () => {
@@ -357,7 +368,7 @@
       });
     }
 
-    // ---- MICRÓFONO CENTRAL (push-to-talk simplificado) ----
+    // ---- MICRÓFONO CENTRAL (push-to-talk) ----
     async function initMediaCentral() {
       if (mediaStreamCentral) return;
       try {
@@ -382,26 +393,29 @@
 
         mediaRecorderCentral.ondataavailable = (e) => {
           if (e.data && e.data.size > 0 && tengoTurnoCentral) {
-            socket.emit("audioChunk", {
+            socket.emit("audioMensaje", {
               rol: "central",
               audio: e.data,
             });
           }
         };
 
-        mediaRecorderCentral.start(200);
+        mediaRecorderCentral.start(200); // chunks rápidos
         isRecordingCentral = true;
         btnMicCentral.classList.add("recording");
         micLabelCentral.textContent = "Grabando (central)...";
         micLabelCentral.style.display = "block";
+        btnMicCentral.disabled = false;
       });
     }
 
     function startRecordingCentral() {
       if (isRecordingCentral || tengoTurnoCentral) return;
-      // pedir turno
       btnMicCentral.disabled = true;
-      socket.emit("ptt:request", { rol: "central" });
+      socket.emit("ptt:request", {
+        rol: "central",
+        nombre: "CENTRAL",
+      });
     }
 
     function stopRecordingCentral() {
