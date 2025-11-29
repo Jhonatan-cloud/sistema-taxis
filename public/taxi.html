@@ -91,6 +91,7 @@
     let mediaStreamTaxi = null;
     let mediaRecorderTaxi = null;
     let isRecordingTaxi = false;
+    let tengoTurnoTaxi = false;
 
     let idServicioActual = null;
 
@@ -198,23 +199,47 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // Recibir audio (taxi escucha TODOS los audios menos el suyo)
-    socket.on("audioMensaje", (data) => {
-      if (!data.audio) return;
-
-      // No reproducir el audio propio
-      if (data.rol === "taxi" && data.idTaxi === spIdTaxi.textContent) {
-        return;
-      }
-
+    // Recibir audio (el server NO reenvía al que habla)
+    socket.on("audioChunk", (data) => {
+      if (!data || !data.audio) return;
       const blob = new Blob([data.audio], { type: "audio/webm" });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.play();
     });
 
-    // ---- MICRÓFONO TAXI (push-to-talk) ----
+    // Eventos PTT
+    socket.on("ptt:busy", () => {
+      if (!tengoTurnoTaxi && !isRecordingTaxi) {
+        btnMicTaxi.disabled = true;
+        micLabelTaxi.textContent = "Canal ocupado...";
+        micLabelTaxi.style.display = "block";
+      }
+    });
 
+    socket.on("ptt:free", () => {
+      if (!isRecordingTaxi) {
+        btnMicTaxi.disabled = false;
+        micLabelTaxi.style.display = "none";
+      }
+    });
+
+    socket.on("ptt:granted", () => {
+      tengoTurnoTaxi = true;
+      btnMicTaxi.disabled = false;
+      iniciarGrabacionTaxi();
+    });
+
+    socket.on("ptt:denied", () => {
+      tengoTurnoTaxi = false;
+      if (!isRecordingTaxi) {
+        btnMicTaxi.disabled = true;
+        micLabelTaxi.textContent = "Canal ocupado...";
+        micLabelTaxi.style.display = "block";
+      }
+    });
+
+    // ---- MICRÓFONO TAXI (PTT) ----
     async function initMediaTaxi() {
       if (mediaStreamTaxi) return;
       try {
@@ -223,54 +248,61 @@
             channelCount: 1,
             sampleRate: 16000,
             echoCancellation: true,
-            noiseSuppression: true
-          }
+            noiseSuppression: true,
+          },
         });
       } catch (e) {
         alert("No se pudo acceder al micrófono del taxi: " + e.message);
       }
     }
 
-    function startRecordingTaxi() {
-      if (isRecordingTaxi) return;
-
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Tu navegador no soporta grabación de audio.");
-        return;
-      }
-
+    function iniciarGrabacionTaxi() {
       initMediaTaxi().then(() => {
         if (!mediaStreamTaxi) return;
 
-        // Usamos MediaRecorder en modo "chunks"
         mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
 
         mediaRecorderTaxi.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) {
-            socket.emit("audioMensaje", {
+          if (e.data && e.data.size > 0 && tengoTurnoTaxi) {
+            socket.emit("audioChunk", {
               rol: "taxi",
-              para: "central",
               idTaxi: spIdTaxi.textContent,
-              audio: e.data
+              audio: e.data,
             });
           }
         };
 
-        // Mandar pedacitos cada 250 ms
-        mediaRecorderTaxi.start(250);
-
+        mediaRecorderTaxi.start(200);
         isRecordingTaxi = true;
         btnMicTaxi.classList.add("recording");
+        micLabelTaxi.textContent = "Grabando (taxi)...";
         micLabelTaxi.style.display = "block";
       });
     }
 
+    function startRecordingTaxi() {
+      if (isRecordingTaxi || tengoTurnoTaxi) return;
+      btnMicTaxi.disabled = true;
+      socket.emit("ptt:request", {
+        rol: "taxi",
+        idTaxi: spIdTaxi.textContent,
+      });
+    }
+
     function stopRecordingTaxi() {
-      if (!isRecordingTaxi || !mediaRecorderTaxi) return;
-      mediaRecorderTaxi.stop();
+      if (!tengoTurnoTaxi) return;
+
+      if (mediaRecorderTaxi && isRecordingTaxi) {
+        mediaRecorderTaxi.stop();
+      }
       isRecordingTaxi = false;
+      tengoTurnoTaxi = false;
+
       btnMicTaxi.classList.remove("recording");
       micLabelTaxi.style.display = "none";
+      btnMicTaxi.disabled = false;
+
+      socket.emit("ptt:release");
     }
 
     ["mousedown", "touchstart"].forEach((ev) => {

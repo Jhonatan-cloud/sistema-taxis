@@ -11,7 +11,7 @@ const io = new Server(server);
 app.use(express.static("public"));
 
 // taxis[socketId] = { idTaxi, nombre, estado, lat, lng }
-let taxis = [];
+let taxis = {};
 
 // servicios
 let servicios = [];
@@ -19,7 +19,6 @@ let servicios = [];
 // 🔥 CONTROL DE RADIO (solo uno habla a la vez)
 let currentSpeaker = null; // socket.id del que habla, null si nadie
 
-// --------------------------------------------------------------------
 io.on("connection", (socket) => {
   console.log("Nuevo cliente conectado:", socket.id);
 
@@ -86,7 +85,7 @@ io.on("connection", (socket) => {
   });
 
   // --------------------------------------------------------------------
-  // 🔥🔥🔥 RADIO PTT: CONTROL DE QUIÉN PUEDE HABLAR 🔥🔥🔥
+  // 🔥 RADIO PTT: CONTROL DE QUIÉN PUEDE HABLAR
   // --------------------------------------------------------------------
 
   // Cliente pide permiso para hablar
@@ -149,7 +148,7 @@ app.get("/", (req, res) => {
   res.send("<h1>Sistema de taxis funcionando. Usa /central.html o /taxi.html</h1>");
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log("Servidor corriendo en el puerto", PORT);
+  console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
