@@ -90,7 +90,6 @@
     const micLabelTaxi = document.getElementById("micLabelTaxi");
     let mediaStreamTaxi = null;
     let mediaRecorderTaxi = null;
-    let audioChunksTaxi = [];
     let isRecordingTaxi = false;
 
     let idServicioActual = null;
@@ -199,10 +198,11 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // Recibir audio (taxi escucha todos menos a sí mismo)
+    // Recibir audio (taxi escucha TODOS los audios menos el suyo)
     socket.on("audioMensaje", (data) => {
       if (!data.audio) return;
 
+      // No reproducir el audio propio
       if (data.rol === "taxi" && data.idTaxi === spIdTaxi.textContent) {
         return;
       }
@@ -214,60 +214,64 @@
     });
 
     // ---- MICRÓFONO TAXI (push-to-talk) ----
+
     async function initMediaTaxi() {
-  if (mediaStreamTaxi) return;
-  try {
-    mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,        // mono
-        sampleRate: 16000,      // menos datos por segundo
-        echoCancellation: true,
-        noiseSuppression: true
+      if (mediaStreamTaxi) return;
+      try {
+        mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            sampleRate: 16000,
+            echoCancellation: true,
+            noiseSuppression: true
+          }
+        });
+      } catch (e) {
+        alert("No se pudo acceder al micrófono del taxi: " + e.message);
       }
-    });
-  } catch (e) {
-    alert("No se pudo acceder al micrófono del taxi: " + e.message);
-  }
-}
+    }
 
     function startRecordingTaxi() {
-  if (isRecordingTaxi) return;
+      if (isRecordingTaxi) return;
 
-  initMediaTaxi().then(() => {
-    if (!mediaStreamTaxi) return;
-
-    mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi, {
-      mimeType: "audio/webm;codecs=opus"
-    });
-
-    mediaRecorderTaxi.ondataavailable = (e) => {
-      if (e.data.size > 0) {
-        socket.emit("audioMensaje", {
-          rol: "taxi",
-          para: "central",
-          idTaxi: spIdTaxi.textContent,
-          audio: e.data
-        });
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("Tu navegador no soporta grabación de audio.");
+        return;
       }
-    };
 
-    // CHUNKS cada 250 ms → velocidad + estabilidad
-    mediaRecorderTaxi.start(250);
+      initMediaTaxi().then(() => {
+        if (!mediaStreamTaxi) return;
 
-    isRecordingTaxi = true;
-    btnMicTaxi.classList.add("recording");
-    micLabelTaxi.style.display = "block";
-  });
-}
+        // Usamos MediaRecorder en modo "chunks"
+        mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
+
+        mediaRecorderTaxi.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            socket.emit("audioMensaje", {
+              rol: "taxi",
+              para: "central",
+              idTaxi: spIdTaxi.textContent,
+              audio: e.data
+            });
+          }
+        };
+
+        // Mandar pedacitos cada 250 ms
+        mediaRecorderTaxi.start(250);
+
+        isRecordingTaxi = true;
+        btnMicTaxi.classList.add("recording");
+        micLabelTaxi.style.display = "block";
+      });
+    }
 
     function stopRecordingTaxi() {
-  if (!isRecordingTaxi || !mediaRecorderTaxi) return;
-
-  mediaRecorderTaxi.stop();
-  isRecordingTaxi = false;
-  btnMicTaxi.classList.remove("recording");
-  micLabelTaxi.style.display = "none";
-}
+      if (!isRecordingTaxi || !mediaRecorderTaxi) return;
+      mediaRecorderTaxi.stop();
+      isRecordingTaxi = false;
+      btnMicTaxi.classList.remove("recording");
+      micLabelTaxi.style.display = "none";
+    }
 
     ["mousedown", "touchstart"].forEach((ev) => {
       btnMicTaxi.addEventListener(ev, (e) => {
