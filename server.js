@@ -11,15 +11,19 @@ const io = new Server(server);
 app.use(express.static("public"));
 
 // taxis[socketId] = { idTaxi, nombre, estado, lat, lng }
-let taxis = {};
+let taxis = [];
 
-// servicios: { id, taxiSocketId, taxiNombre, direccion, estado }
+// servicios
 let servicios = [];
 
+// 🔥 CONTROL DE RADIO (solo uno habla a la vez)
+let currentSpeaker = null; // socket.id del que habla, null si nadie
+
+// --------------------------------------------------------------------
 io.on("connection", (socket) => {
   console.log("Nuevo cliente conectado:", socket.id);
 
-  // Registro de taxi desde taxi.html
+  // ---------------------- REGISTRO TAXI ----------------------
   socket.on("registrarTaxi", (data) => {
     taxis[socket.id] = {
       idTaxi: data.idTaxi,
@@ -28,11 +32,10 @@ io.on("connection", (socket) => {
       lat: null,
       lng: null,
     };
-    console.log("Taxi registrado:", taxis[socket.id]);
     enviarListaTaxis();
   });
 
-  // Actualiza ubicación del taxi
+  // ---------------------- UBICACIÓN ----------------------------
   socket.on("actualizarUbicacion", (data) => {
     if (taxis[socket.id]) {
       taxis[socket.id].lat = data.lat;
@@ -41,7 +44,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Central asigna servicio
+  // ---------------------- SERVICIOS ----------------------------
   socket.on("asignarServicio", (data) => {
     const taxi = taxis[data.socketIdTaxi];
     if (!taxi) return;
@@ -57,14 +60,12 @@ io.on("connection", (socket) => {
     servicios.push(servicio);
     taxi.estado = "ocupado";
 
-    // Enviar servicio al taxi
     io.to(data.socketIdTaxi).emit("nuevoServicio", servicio);
 
     enviarListaTaxis();
     io.emit("listaServicios", servicios);
   });
 
-  // Taxi cambia estado del servicio
   socket.on("estadoServicio", (data) => {
     const servicio = servicios.find((s) => s.id === data.idServicio);
     if (!servicio) return;
@@ -79,23 +80,63 @@ io.on("connection", (socket) => {
     io.emit("listaServicios", servicios);
   });
 
-  // Chat texto
+  // ---------------------- CHAT ----------------------------
   socket.on("mensajeChat", (data) => {
     io.emit("mensajeChat", data);
   });
 
-  // Audio (push-to-talk)
-  socket.on("audioMensaje", (data) => {
-    // reenviamos a todos; cada cliente filtra con data.para
-    io.emit("audioMensaje", data);
+  // --------------------------------------------------------------------
+  // 🔥🔥🔥 RADIO PTT: CONTROL DE QUIÉN PUEDE HABLAR 🔥🔥🔥
+  // --------------------------------------------------------------------
+
+  // Cliente pide permiso para hablar
+  socket.on("ptt:request", (data) => {
+    if (!currentSpeaker) {
+      // Nadie está hablando → se lo damos
+      currentSpeaker = socket.id;
+      console.log("Turno concedido a:", socket.id);
+      socket.emit("ptt:granted");
+      socket.broadcast.emit("ptt:busy", {
+        speaker: socket.id,
+        rol: data.rol,
+        idTaxi: data.idTaxi || null,
+      });
+    } else {
+      // Canal ocupado
+      socket.emit("ptt:denied");
+    }
   });
 
-  // Desconexión
+  // Cliente suelta el botón → libera el canal
+  socket.on("ptt:release", () => {
+    if (currentSpeaker === socket.id) {
+      console.log("Turno liberado por:", socket.id);
+      currentSpeaker = null;
+      io.emit("ptt:free");
+    }
+  });
+
+  // Recibir audio chunks solo del que habla
+  socket.on("audioChunk", (data) => {
+    if (socket.id !== currentSpeaker) return; // ignorar si no es el dueño del turno
+
+    // Reenviar chunks a todos menos al hablante
+    socket.broadcast.emit("audioChunk", data);
+  });
+
+  // ---------------------- DESCONEXIÓN ----------------------------
   socket.on("disconnect", () => {
     console.log("Cliente desconectado:", socket.id);
+
     if (taxis[socket.id]) {
       delete taxis[socket.id];
       enviarListaTaxis();
+    }
+
+    // Si el que hablaba se desconecta → liberar canal
+    if (currentSpeaker === socket.id) {
+      currentSpeaker = null;
+      io.emit("ptt:free");
     }
   });
 });
@@ -104,12 +145,11 @@ function enviarListaTaxis() {
   io.emit("listaTaxis", taxis);
 }
 
-// Ruta raíz (solo info)
 app.get("/", (req, res) => {
   res.send("<h1>Sistema de taxis funcionando. Usa /central.html o /taxi.html</h1>");
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 server.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
+  console.log("Servidor corriendo en el puerto", PORT);
 });
