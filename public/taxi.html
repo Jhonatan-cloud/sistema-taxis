@@ -199,11 +199,10 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // Recibir audio (taxi escucha TODOS los audios menos el suyo)
+    // Recibir audio (taxi escucha todos menos a sí mismo)
     socket.on("audioMensaje", (data) => {
       if (!data.audio) return;
 
-      // 🚫 Si el audio viene del mismo taxi, NO reproducirlo
       if (data.rol === "taxi" && data.idTaxi === spIdTaxi.textContent) {
         return;
       }
@@ -218,15 +217,7 @@
     async function initMediaTaxi() {
       if (mediaStreamTaxi) return;
       try {
-        // >>> CAMBIO: audio optimizado (mono, 16kHz, cancelación de eco)
-        mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            sampleRate: 16000,
-            echoCancellation: true,
-            noiseSuppression: true,
-          },
-        });
+        mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (e) {
         alert("No se pudo acceder al micrófono del taxi: " + e.message);
       }
@@ -246,20 +237,24 @@
         audioChunksTaxi = [];
         mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
 
-        // >>> CAMBIO: modo radio, se envían chunks mientras se graba
         mediaRecorderTaxi.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) {
-            socket.emit("audioMensaje", {
-              rol: "taxi",
-              para: "central",
-              idTaxi: spIdTaxi.textContent, // para saber quién habló
-              audio: e.data,
-            });
+          if (e.data.size > 0) {
+            audioChunksTaxi.push(e.data);
           }
         };
 
-        // 200 ms por chunk
-        mediaRecorderTaxi.start(200);
+        mediaRecorderTaxi.onstop = () => {
+          const blob = new Blob(audioChunksTaxi, { type: "audio/webm" });
+
+          socket.emit("audioMensaje", {
+            rol: "taxi",
+            para: "central",
+            idTaxi: spIdTaxi.textContent,
+            audio: blob,
+          });
+        };
+
+        mediaRecorderTaxi.start();
         isRecordingTaxi = true;
         btnMicTaxi.classList.add("recording");
         micLabelTaxi.style.display = "block";

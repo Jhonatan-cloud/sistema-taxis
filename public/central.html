@@ -135,7 +135,6 @@
 
       const idsActuales = Object.keys(taxis);
 
-      // Crear / actualizar markers de taxis
       idsActuales.forEach((id) => {
         const t = taxis[id];
         if (t.lat == null || t.lng == null) return;
@@ -158,7 +157,6 @@
         }
       });
 
-      // Eliminar markers de taxis desconectados
       Object.keys(markers).forEach((id) => {
         if (!taxis[id]) {
           markers[id].setMap(null);
@@ -224,7 +222,6 @@
     socket.on("audioMensaje", (data) => {
       if (!data.audio) return;
 
-      // 🚫 Si el audio viene de la propia central, no lo reproducimos
       if (data.rol === "central") {
         return;
       }
@@ -245,7 +242,6 @@
 
       socket.emit("asignarServicio", { socketIdTaxi, direccion });
 
-      // Geocodificar dirección para marcar destino y dibujar línea
       if (geocoder && map) {
         geocoder.geocode({ address: direccion }, (results, status) => {
           if (status === "OK" && results[0]) {
@@ -320,12 +316,9 @@
         return;
       }
 
-      servicios
-        .slice()
-        .reverse()
-        .forEach((s) => {
-          const div = document.createElement("div");
-          div.innerHTML = `
+      servicios.slice().reverse().forEach((s) => {
+        const div = document.createElement("div");
+        div.innerHTML = `
           <p>
             <strong>Servicio #${s.id}</strong><br />
             Taxi: ${s.taxiNombre}<br/>
@@ -334,23 +327,15 @@
           </p>
           <hr/>
         `;
-          listaServiciosDiv.appendChild(div);
-        });
+        listaServiciosDiv.appendChild(div);
+      });
     }
 
     // ---- MICRÓFONO CENTRAL (push-to-talk) ----
     async function initMediaCentral() {
       if (mediaStreamCentral) return;
       try {
-        // >>> CAMBIO: audio optimizado (mono, 16 kHz, cancelación de eco)
-        mediaStreamCentral = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            sampleRate: 16000,
-            echoCancellation: true,
-            noiseSuppression: true,
-          },
-        });
+        mediaStreamCentral = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (e) {
         alert("No se pudo acceder al micrófono de la central: " + e.message);
       }
@@ -370,19 +355,23 @@
         audioChunksCentral = [];
         mediaRecorderCentral = new MediaRecorder(mediaStreamCentral);
 
-        // >>> CAMBIO: modo radio, se envían chunks mientras se graba
         mediaRecorderCentral.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) {
-            socket.emit("audioMensaje", {
-              rol: "central",
-              para: "taxis",
-              audio: e.data,
-            });
+          if (e.data.size > 0) {
+            audioChunksCentral.push(e.data);
           }
         };
 
-        // 200 ms por chunk ≈ radio rápida
-        mediaRecorderCentral.start(200);
+        mediaRecorderCentral.onstop = () => {
+          const blob = new Blob(audioChunksCentral, { type: "audio/webm" });
+
+          socket.emit("audioMensaje", {
+            rol: "central",
+            para: "taxis",
+            audio: blob,
+          });
+        };
+
+        mediaRecorderCentral.start();
         isRecordingCentral = true;
         btnMicCentral.classList.add("recording");
         micLabelCentral.style.display = "block";
@@ -412,7 +401,6 @@
     });
   </script>
 
-  <!-- REEMPLAZA TU_API_KEY_AQUI POR TU API KEY DE GOOGLE MAPS -->
   <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB_AwwkYMfrvI-mPmQoNAmKA3L25qoBb1s&callback=initMap"></script>
 </body>
 </html>
