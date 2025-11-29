@@ -333,13 +333,20 @@
 
     // ---- MICRÓFONO CENTRAL (push-to-talk) ----
     async function initMediaCentral() {
-      if (mediaStreamCentral) return;
-      try {
-        mediaStreamCentral = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (e) {
-        alert("No se pudo acceder al micrófono de la central: " + e.message);
+  if (mediaStreamCentral) return;
+  try {
+    mediaStreamCentral = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,        // mono = la mitad de datos
+        sampleRate: 16000,      // menos frecuencia = menos peso
+        echoCancellation: true, // quita eco
+        noiseSuppression: true  // reduce ruido
       }
-    }
+    });
+  } catch (e) {
+    alert("No se pudo acceder al micrófono de la central: " + e.message);
+  }
+}
 
     function startRecordingCentral() {
       if (isRecordingCentral) return;

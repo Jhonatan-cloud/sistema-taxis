@@ -215,13 +215,20 @@
 
     // ---- MICRÓFONO TAXI (push-to-talk) ----
     async function initMediaTaxi() {
-      if (mediaStreamTaxi) return;
-      try {
-        mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (e) {
-        alert("No se pudo acceder al micrófono del taxi: " + e.message);
+  if (mediaStreamTaxi) return;
+  try {
+    mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,        // mono
+        sampleRate: 16000,      // menos datos por segundo
+        echoCancellation: true,
+        noiseSuppression: true
       }
-    }
+    });
+  } catch (e) {
+    alert("No se pudo acceder al micrófono del taxi: " + e.message);
+  }
+}
 
     function startRecordingTaxi() {
       if (isRecordingTaxi) return;
