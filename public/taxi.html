@@ -231,50 +231,43 @@
 }
 
     function startRecordingTaxi() {
-      if (isRecordingTaxi) return;
+  if (isRecordingTaxi) return;
 
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Tu navegador no soporta grabación de audio.");
-        return;
+  initMediaTaxi().then(() => {
+    if (!mediaStreamTaxi) return;
+
+    mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi, {
+      mimeType: "audio/webm;codecs=opus"
+    });
+
+    mediaRecorderTaxi.ondataavailable = (e) => {
+      if (e.data.size > 0) {
+        socket.emit("audioMensaje", {
+          rol: "taxi",
+          para: "central",
+          idTaxi: spIdTaxi.textContent,
+          audio: e.data
+        });
       }
+    };
 
-      initMediaTaxi().then(() => {
-        if (!mediaStreamTaxi) return;
+    // CHUNKS cada 250 ms → velocidad + estabilidad
+    mediaRecorderTaxi.start(250);
 
-        audioChunksTaxi = [];
-        mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
-
-        mediaRecorderTaxi.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            audioChunksTaxi.push(e.data);
-          }
-        };
-
-        mediaRecorderTaxi.onstop = () => {
-          const blob = new Blob(audioChunksTaxi, { type: "audio/webm" });
-
-          socket.emit("audioMensaje", {
-            rol: "taxi",
-            para: "central",
-            idTaxi: spIdTaxi.textContent,
-            audio: blob,
-          });
-        };
-
-        mediaRecorderTaxi.start();
-        isRecordingTaxi = true;
-        btnMicTaxi.classList.add("recording");
-        micLabelTaxi.style.display = "block";
-      });
-    }
+    isRecordingTaxi = true;
+    btnMicTaxi.classList.add("recording");
+    micLabelTaxi.style.display = "block";
+  });
+}
 
     function stopRecordingTaxi() {
-      if (!isRecordingTaxi || !mediaRecorderTaxi) return;
-      mediaRecorderTaxi.stop();
-      isRecordingTaxi = false;
-      btnMicTaxi.classList.remove("recording");
-      micLabelTaxi.style.display = "none";
-    }
+  if (!isRecordingTaxi || !mediaRecorderTaxi) return;
+
+  mediaRecorderTaxi.stop();
+  isRecordingTaxi = false;
+  btnMicTaxi.classList.remove("recording");
+  micLabelTaxi.style.display = "none";
+}
 
     ["mousedown", "touchstart"].forEach((ev) => {
       btnMicTaxi.addEventListener(ev, (e) => {
