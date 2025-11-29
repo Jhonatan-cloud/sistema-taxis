@@ -349,49 +349,49 @@
 }
 
     function startRecordingCentral() {
-      if (isRecordingCentral) return;
+  if (isRecordingCentral) return;
 
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Tu navegador no soporta grabación de audio.");
-        return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert("Tu navegador no soporta grabación de audio.");
+    return;
+  }
+
+  initMediaCentral().then(() => {
+    if (!mediaStreamCentral) return;
+
+    // ya no usamos audioChunksCentral aquí
+    mediaRecorderCentral = new MediaRecorder(mediaStreamCentral, {
+      mimeType: "audio/webm;codecs=opus"
+    });
+
+    // Enviar pedacitos mientras se graba
+    mediaRecorderCentral.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) {
+        socket.emit("audioMensaje", {
+          rol: "central",
+          para: "taxis",
+          audio: e.data
+        });
       }
+    };
 
-      initMediaCentral().then(() => {
-        if (!mediaStreamCentral) return;
+    // chunks cada 250 ms ≈ radio rápida + estable
+    mediaRecorderCentral.start(250);
 
-        audioChunksCentral = [];
-        mediaRecorderCentral = new MediaRecorder(mediaStreamCentral);
-
-        mediaRecorderCentral.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            audioChunksCentral.push(e.data);
-          }
-        };
-
-        mediaRecorderCentral.onstop = () => {
-          const blob = new Blob(audioChunksCentral, { type: "audio/webm" });
-
-          socket.emit("audioMensaje", {
-            rol: "central",
-            para: "taxis",
-            audio: blob,
-          });
-        };
-
-        mediaRecorderCentral.start();
-        isRecordingCentral = true;
-        btnMicCentral.classList.add("recording");
-        micLabelCentral.style.display = "block";
-      });
-    }
+    isRecordingCentral = true;
+    btnMicCentral.classList.add("recording");
+    micLabelCentral.style.display = "block";
+  });
+}
 
     function stopRecordingCentral() {
-      if (!isRecordingCentral || !mediaRecorderCentral) return;
-      mediaRecorderCentral.stop();
-      isRecordingCentral = false;
-      btnMicCentral.classList.remove("recording");
-      micLabelCentral.style.display = "none";
-    }
+  if (!isRecordingCentral || !mediaRecorderCentral) return;
+
+  mediaRecorderCentral.stop();
+  isRecordingCentral = false;
+  btnMicCentral.classList.remove("recording");
+  micLabelCentral.style.display = "none";
+}
 
     ["mousedown", "touchstart"].forEach((ev) => {
       btnMicCentral.addEventListener(ev, (e) => {
