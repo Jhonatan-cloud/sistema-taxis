@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Central de Taxis</title>
+  <title>Taxi Exclusivo - Central</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="/socket.io/socket.io.js"></script>
   <style>
@@ -15,23 +15,29 @@
   </style>
 </head>
 <body>
+  <div class="header-exclusivo">
+    <h1>TAXI EXCLUSIVO</h1>
+    <h2>CENTRAL</h2>
+    <small>Radio digital en tiempo real • Tel: 959 757 590</small>
+  </div>
+
   <!-- LOGIN CENTRAL -->
   <div class="container" id="loginContainer">
-    <h1>Login Central de Taxis</h1>
     <div class="card">
+      <h2>Login Central</h2>
       <label>Usuario:</label><br />
       <input type="text" id="txtUser" placeholder="Usuario" /><br />
       <label>Contraseña:</label><br />
       <input type="password" id="txtPass" placeholder="Contraseña" /><br />
       <button id="btnLogin">Ingresar</button>
+      <p style="font-size:12px;margin-top:6px;">
+        Usuario: <strong>TAXISPERU</strong> | Contraseña: <strong>PERU123</strong>
+      </p>
     </div>
-    <p>Usuario: <strong>TAXISPERU</strong> | Contraseña: <strong>PERU123</strong></p>
   </div>
 
   <!-- APLICACIÓN CENTRAL -->
   <div class="container" id="appContainer" style="display:none;">
-    <h1>Central de Taxis</h1>
-
     <div class="card">
       <h2>Mapa de taxis</h2>
       <div id="map">Cargando mapa…</div>
@@ -58,7 +64,7 @@
 
     <div class="card">
       <h2>Chat central ↔ taxis</h2>
-      <div id="chatMensajes" class="lista" style="background:rgba(0,0,0,0.2); padding:8px;"></div>
+      <div id="chatMensajes" class="lista"></div>
       <input type="text" id="txtMensaje" placeholder="Escribe un mensaje..." style="width:80%" />
       <button id="btnEnviarMensaje">Enviar</button>
     </div>
@@ -70,6 +76,11 @@
   </button>
   <div id="micLabelCentral" class="mic-label" style="display:none;">
     Grabando (central)...
+  </div>
+
+  <!-- Indicador de quién está hablando -->
+  <div id="lblHablandoCentral" class="mic-label left" style="display:none;">
+    Nadie hablando
   </div>
 
   <script>
@@ -107,14 +118,12 @@
     // Mic central
     const btnMicCentral = document.getElementById("btnMicCentral");
     const micLabelCentral = document.getElementById("micLabelCentral");
+    const lblHablandoCentral = document.getElementById("lblHablandoCentral");
+
     let mediaStreamCentral = null;
     let mediaRecorderCentral = null;
     let isRecordingCentral = false;
-
-    // Estado de radio (PTT)
     let tengoTurnoCentral = false;
-    let solicitandoTurnoCentral = false;
-    let canalOcupadoCentral = false;
 
     let taxis = {};
     let map = null;
@@ -126,7 +135,7 @@
 
     // ---- MAPA ----
     function initMap() {
-      const centroInicial = { lat: -12.046374, lng: -77.042793 }; // Lima aprox
+      const centroInicial = { lat: -12.046374, lng: -77.042793 };
       map = new google.maps.Map(document.getElementById("map"), {
         center: centroInicial,
         zoom: 12,
@@ -222,50 +231,47 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // 🎧 Recibir audio de quien está hablando (menos uno mismo, el server ya no reenvía al emisor)
+    // 🔊 Recibir audio en tiempo casi real
     socket.on("audioChunk", (data) => {
       if (!data || !data.audio) return;
-
-      const blob = new Blob([data.audio], { type: "audio/webm" });
+      const blob = new Blob([data.audio], { type: "audio/webm;codecs=opus" });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.play();
     });
 
-    // 📡 Eventos de control de radio (PTT)
-    socket.on("ptt:busy", (info) => {
-      // Alguien está hablando
-      canalOcupadoCentral = true;
-      if (!tengoTurnoCentral && !isRecordingCentral) {
-        btnMicCentral.disabled = true;
-        micLabelCentral.textContent = "Canal ocupado...";
-        micLabelCentral.style.display = "block";
+    // 🟢 Saber quién habla
+    socket.on("ptt:speaker", (info) => {
+      let texto = "Hablando: ";
+      if (info.rol === "central") {
+        texto += "CENTRAL";
+      } else if (info.rol === "taxi") {
+        texto += `Taxi ${info.idTaxi || ""}${info.nombre ? " - " + info.nombre : ""}`;
+      } else {
+        texto += "Desconocido";
       }
+      lblHablandoCentral.textContent = texto;
+      lblHablandoCentral.style.display = "block";
     });
 
-    socket.on("ptt:free", () => {
-      canalOcupadoCentral = false;
-      if (!isRecordingCentral) {
-        btnMicCentral.disabled = false;
-        micLabelCentral.style.display = "none";
-      }
+    socket.on("ptt:released", () => {
+      lblHablandoCentral.style.display = "none";
     });
 
+    // Turno central
     socket.on("ptt:granted", () => {
-      // A esta central se le concedió el turno
-      solicitandoTurnoCentral = false;
       tengoTurnoCentral = true;
-      btnMicCentral.disabled = false;
-      iniciarGrabacionCentral();
+      startRecordingCentral();
     });
 
     socket.on("ptt:denied", () => {
-      solicitandoTurnoCentral = false;
       tengoTurnoCentral = false;
       if (!isRecordingCentral) {
-        btnMicCentral.disabled = true;
         micLabelCentral.textContent = "Canal ocupado...";
         micLabelCentral.style.display = "block";
+        setTimeout(() => {
+          if (!isRecordingCentral) micLabelCentral.style.display = "none";
+        }, 800);
       }
     });
 
@@ -333,7 +339,9 @@
           <p>
             <strong>${t.nombre}</strong> (ID: ${t.idTaxi})<br />
             Estado: <span class="badge">${t.estado}</span><br/>
-            Ubicación: ${t.lat ? t.lat.toFixed(5) + ", " + t.lng.toFixed(5) : "sin datos"}
+            Ubicación: ${
+              t.lat ? t.lat.toFixed(5) + ", " + t.lng.toFixed(5) : "sin datos"
+            }
           </p>
           <hr/>
         `;
@@ -353,22 +361,25 @@
         return;
       }
 
-      servicios.slice().reverse().forEach((s) => {
-        const div = document.createElement("div");
-        div.innerHTML = `
-          <p>
-            <strong>Servicio #${s.id}</strong><br />
-            Taxi: ${s.taxiNombre}<br/>
-            Dirección: ${s.direccion}<br/>
-            Estado: <span class="badge">${s.estado}</span>
-          </p>
-          <hr/>
-        `;
-        listaServiciosDiv.appendChild(div);
-      });
+      servicios
+        .slice()
+        .reverse()
+        .forEach((s) => {
+          const div = document.createElement("div");
+          div.innerHTML = `
+            <p>
+              <strong>Servicio #${s.id}</strong><br />
+              Taxi: ${s.taxiNombre}<br/>
+              Dirección: ${s.direccion}<br/>
+              Estado: <span class="badge">${s.estado}</span>
+            </p>
+            <hr/>
+          `;
+          listaServiciosDiv.appendChild(div);
+        });
     }
 
-    // ---- MICRÓFONO CENTRAL (push-to-talk con PTT) ----
+    // ---- MICRÓFONO CENTRAL (streaming tipo radio) ----
     async function initMediaCentral() {
       if (mediaStreamCentral) return;
       try {
@@ -385,14 +396,17 @@
       }
     }
 
-    function iniciarGrabacionCentral() {
+    function startRecordingCentral() {
+      if (isRecordingCentral) return;
       initMediaCentral().then(() => {
         if (!mediaStreamCentral) return;
 
-        mediaRecorderCentral = new MediaRecorder(mediaStreamCentral);
+        mediaRecorderCentral = new MediaRecorder(mediaStreamCentral, {
+          mimeType: "audio/webm;codecs=opus",
+        });
 
         mediaRecorderCentral.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0 && tengoTurnoCentral) {
+          if (e.data && e.data.size > 0) {
             socket.emit("audioChunk", {
               rol: "central",
               audio: e.data,
@@ -400,50 +414,41 @@
           }
         };
 
-        // chunks rápidos
+        // chunks cada 200 ms → sensación casi tiempo real
         mediaRecorderCentral.start(200);
         isRecordingCentral = true;
-        btnMicCentral.classList.add("recording");
         micLabelCentral.textContent = "Grabando (central)...";
         micLabelCentral.style.display = "block";
+        btnMicCentral.classList.add("recording");
       });
     }
 
-    function startRecordingCentral() {
-      if (isRecordingCentral || solicitandoTurnoCentral || tengoTurnoCentral) return;
-      if (canalOcupadoCentral) {
-        // canal ya ocupado, no pedir turno
-        micLabelCentral.textContent = "Canal ocupado...";
-        micLabelCentral.style.display = "block";
-        return;
-      }
-
-      solicitandoTurnoCentral = true;
-      btnMicCentral.disabled = true;
-      socket.emit("ptt:request", { rol: "central" });
-    }
-
     function stopRecordingCentral() {
-      // Solo tiene sentido si esta central tiene el turno
       if (!tengoTurnoCentral) return;
 
       if (mediaRecorderCentral && isRecordingCentral) {
         mediaRecorderCentral.stop();
       }
-
       isRecordingCentral = false;
-      tengoTurnoCentral = false;
       btnMicCentral.classList.remove("recording");
       micLabelCentral.style.display = "none";
-      btnMicCentral.disabled = false;
 
       socket.emit("ptt:release");
+      tengoTurnoCentral = false;
+    }
+
+    function requestTurnoCentral() {
+      if (isRecordingCentral || tengoTurnoCentral) return;
+      socket.emit("ptt:request", {
+        rol: "central",
+        nombre: "CENTRAL",
+      });
     }
 
     ["mousedown", "touchstart"].forEach((ev) => {
       btnMicCentral.addEventListener(ev, (e) => {
         e.preventDefault();
-        startRecordingCentral();
+        requestTurnoCentral();
       });
     });
 

@@ -2,16 +2,21 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>App Taxi</title>
+  <title>Taxi Exclusivo - App Taxi</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="styles.css" />
   <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
-  <div class="container">
-    <h1>Taxi - Sesión</h1>
+  <div class="header-exclusivo">
+    <h1>TAXI EXCLUSIVO</h1>
+    <h2>UNIDAD</h2>
+    <small>Radio directa con central • Tel: 959 757 590</small>
+  </div>
 
+  <div class="container">
     <div class="card" id="cardLogin">
+      <h2>Login Taxi</h2>
       <label>ID Taxi:</label><br />
       <input type="text" id="txtIdTaxi" placeholder="Ej: TX-01" /><br />
       <label>Nombre del chofer:</label><br />
@@ -44,7 +49,7 @@
       <hr />
 
       <h3>Chat con central</h3>
-      <div id="chatMensajes" class="lista" style="background:rgba(0,0,0,0.2); padding:8px;"></div>
+      <div id="chatMensajes" class="lista"></div>
       <input type="text" id="txtMensaje" placeholder="Mensaje para la central..." style="width:80%" />
       <button id="btnEnviarMensaje">Enviar</button>
     </div>
@@ -56,6 +61,11 @@
   </button>
   <div id="micLabelTaxi" class="mic-label" style="display:none;">
     Grabando (taxi)...
+  </div>
+
+  <!-- Indicador de quién está hablando -->
+  <div id="lblHablandoTaxi" class="mic-label left" style="display:none;">
+    Nadie hablando
   </div>
 
   <script>
@@ -88,14 +98,12 @@
     // Mic taxi
     const btnMicTaxi = document.getElementById("btnMicTaxi");
     const micLabelTaxi = document.getElementById("micLabelTaxi");
+    const lblHablandoTaxi = document.getElementById("lblHablandoTaxi");
+
     let mediaStreamTaxi = null;
     let mediaRecorderTaxi = null;
     let isRecordingTaxi = false;
-
-    // Estado de radio (PTT)
     let tengoTurnoTaxi = false;
-    let solicitandoTurnoTaxi = false;
-    let canalOcupadoTaxi = false;
 
     let idServicioActual = null;
 
@@ -168,11 +176,13 @@
             socket.emit("actualizarUbicacion", { lat, lng });
           },
           (err) => {
-            pUbicacion.textContent = "No se pudo obtener la ubicación real. Usa 'Simular ubicación'.";
+            pUbicacion.textContent =
+              "No se pudo obtener la ubicación real. Usa 'Simular ubicación'.";
           }
         );
       } else {
-        pUbicacion.textContent = "Geolocalización no soportada. Usa 'Simular ubicación'.";
+        pUbicacion.textContent =
+          "Geolocalización no soportada. Usa 'Simular ubicación'.";
       }
     }
 
@@ -180,7 +190,7 @@
     btnSimularUbicacion.addEventListener("click", () => {
       const lat = -12.04637 + (Math.random() - 0.5) / 100;
       const lng = -77.04279 + (Math.random() - 0.5) / 100;
-      pUbicacion.textContent = `Lat (sim): ${lat.toFixed(5)} - Lng (sim): ${lng.toFixed(5)}`;
+      pUbicacion.textContent = `Lat (sim): ${lat.toFixed(5)} - Lng: ${lng.toFixed(5)}`;
       socket.emit("actualizarUbicacion", { lat, lng });
     });
 
@@ -203,53 +213,51 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // 🎧 Recibir audio de quien está hablando (el server no reenvía al emisor)
+    // 🔊 Recibir audio en tiempo real
     socket.on("audioChunk", (data) => {
       if (!data || !data.audio) return;
-
-      const blob = new Blob([data.audio], { type: "audio/webm" });
+      const blob = new Blob([data.audio], { type: "audio/webm;codecs=opus" });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.play();
     });
 
-    // 📡 Eventos PTT
-    socket.on("ptt:busy", (info) => {
-      canalOcupadoTaxi = true;
-      if (!tengoTurnoTaxi && !isRecordingTaxi) {
-        btnMicTaxi.disabled = true;
-        micLabelTaxi.textContent = "Canal ocupado...";
-        micLabelTaxi.style.display = "block";
+    // 🟢 Saber quién habla
+    socket.on("ptt:speaker", (info) => {
+      let texto = "Hablando: ";
+      if (info.rol === "central") {
+        texto += "CENTRAL";
+      } else if (info.rol === "taxi") {
+        texto += `Taxi ${info.idTaxi || ""}${info.nombre ? " - " + info.nombre : ""}`;
+      } else {
+        texto += "Desconocido";
       }
+      lblHablandoTaxi.textContent = texto;
+      lblHablandoTaxi.style.display = "block";
     });
 
-    socket.on("ptt:free", () => {
-      canalOcupadoTaxi = false;
-      if (!isRecordingTaxi) {
-        btnMicTaxi.disabled = false;
-        micLabelTaxi.style.display = "none";
-      }
+    socket.on("ptt:released", () => {
+      lblHablandoTaxi.style.display = "none";
     });
 
+    // Turno taxi
     socket.on("ptt:granted", () => {
-      solicitandoTurnoTaxi = false;
       tengoTurnoTaxi = true;
-      btnMicTaxi.disabled = false;
-      iniciarGrabacionTaxi();
+      startRecordingTaxi();
     });
 
     socket.on("ptt:denied", () => {
-      solicitandoTurnoTaxi = false;
       tengoTurnoTaxi = false;
       if (!isRecordingTaxi) {
-        btnMicTaxi.disabled = true;
         micLabelTaxi.textContent = "Canal ocupado...";
         micLabelTaxi.style.display = "block";
+        setTimeout(() => {
+          if (!isRecordingTaxi) micLabelTaxi.style.display = "none";
+        }, 800);
       }
     });
 
-    // ---- MICRÓFONO TAXI (PTT modo radio) ----
-
+    // ---- MICRÓFONO TAXI (streaming tipo radio) ----
     async function initMediaTaxi() {
       if (mediaStreamTaxi) return;
       try {
@@ -266,14 +274,17 @@
       }
     }
 
-    function iniciarGrabacionTaxi() {
+    function startRecordingTaxi() {
+      if (isRecordingTaxi) return;
       initMediaTaxi().then(() => {
         if (!mediaStreamTaxi) return;
 
-        mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi);
+        mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi, {
+          mimeType: "audio/webm;codecs=opus",
+        });
 
         mediaRecorderTaxi.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0 && tengoTurnoTaxi) {
+          if (e.data && e.data.size > 0) {
             socket.emit("audioChunk", {
               rol: "taxi",
               idTaxi: spIdTaxi.textContent,
@@ -282,27 +293,11 @@
           }
         };
 
-        mediaRecorderTaxi.start(200);
+        mediaRecorderTaxi.start(200); // chunks cada 200 ms
         isRecordingTaxi = true;
-        btnMicTaxi.classList.add("recording");
         micLabelTaxi.textContent = "Grabando (taxi)...";
         micLabelTaxi.style.display = "block";
-      });
-    }
-
-    function startRecordingTaxi() {
-      if (isRecordingTaxi || solicitandoTurnoTaxi || tengoTurnoTaxi) return;
-      if (canalOcupadoTaxi) {
-        micLabelTaxi.textContent = "Canal ocupado...";
-        micLabelTaxi.style.display = "block";
-        return;
-      }
-
-      solicitandoTurnoTaxi = true;
-      btnMicTaxi.disabled = true;
-      socket.emit("ptt:request", {
-        rol: "taxi",
-        idTaxi: spIdTaxi.textContent,
+        btnMicTaxi.classList.add("recording");
       });
     }
 
@@ -312,20 +307,27 @@
       if (mediaRecorderTaxi && isRecordingTaxi) {
         mediaRecorderTaxi.stop();
       }
-
       isRecordingTaxi = false;
-      tengoTurnoTaxi = false;
       btnMicTaxi.classList.remove("recording");
       micLabelTaxi.style.display = "none";
-      btnMicTaxi.disabled = false;
 
       socket.emit("ptt:release");
+      tengoTurnoTaxi = false;
+    }
+
+    function requestTurnoTaxi() {
+      if (isRecordingTaxi || tengoTurnoTaxi) return;
+      socket.emit("ptt:request", {
+        rol: "taxi",
+        idTaxi: spIdTaxi.textContent,
+        nombre: spNombre.textContent,
+      });
     }
 
     ["mousedown", "touchstart"].forEach((ev) => {
       btnMicTaxi.addEventListener(ev, (e) => {
         e.preventDefault();
-        startRecordingTaxi();
+        requestTurnoTaxi();
       });
     });
 
