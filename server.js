@@ -114,14 +114,14 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 🔊 Audio en tiempo real (chunks)
+  // 🔊 Audio de un solo bloque por pulsación
   // data: { rol, idTaxi?, audio: Blob/bin }
-  socket.on("audioChunk", (data) => {
+  socket.on("audioMensaje", (data) => {
     if (socket.id !== currentSpeaker) {
       return; // ignorar si no es el que tiene el turno
     }
-    // Reenviar a todos MENOS al que habla
-    socket.broadcast.emit("audioChunk", {
+    // Reenviar a todos MENOS al que habla (broadcast)
+    socket.broadcast.emit("audioMensaje", {
       ...data,
       speaker: currentSpeakerInfo,
     });

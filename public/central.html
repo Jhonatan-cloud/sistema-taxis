@@ -122,6 +122,7 @@
 
     let mediaStreamCentral = null;
     let mediaRecorderCentral = null;
+    let audioChunksCentral = [];
     let isRecordingCentral = false;
     let tengoTurnoCentral = false;
 
@@ -231,8 +232,8 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // 🔊 Recibir audio en tiempo casi real
-    socket.on("audioChunk", (data) => {
+    // 🔊 Recibir audio (1 bloque por pulsación)
+    socket.on("audioMensaje", (data) => {
       if (!data || !data.audio) return;
       const blob = new Blob([data.audio], { type: "audio/webm;codecs=opus" });
       const url = URL.createObjectURL(blob);
@@ -379,7 +380,7 @@
         });
     }
 
-    // ---- MICRÓFONO CENTRAL (streaming tipo radio) ----
+    // ---- MICRÓFONO CENTRAL (1 audio por pulsación) ----
     async function initMediaCentral() {
       if (mediaStreamCentral) return;
       try {
@@ -401,21 +402,29 @@
       initMediaCentral().then(() => {
         if (!mediaStreamCentral) return;
 
+        audioChunksCentral = [];
         mediaRecorderCentral = new MediaRecorder(mediaStreamCentral, {
           mimeType: "audio/webm;codecs=opus",
         });
 
         mediaRecorderCentral.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) {
-            socket.emit("audioChunk", {
-              rol: "central",
-              audio: e.data,
-            });
+            audioChunksCentral.push(e.data);
           }
         };
 
-        // chunks cada 200 ms → sensación casi tiempo real
-        mediaRecorderCentral.start(200);
+        mediaRecorderCentral.onstop = () => {
+          if (!tengoTurnoCentral) return;
+          const blob = new Blob(audioChunksCentral, {
+            type: "audio/webm;codecs=opus",
+          });
+          socket.emit("audioMensaje", {
+            rol: "central",
+            audio: blob,
+          });
+        };
+
+        mediaRecorderCentral.start(); // sin timeslice: 1 audio por pulsación
         isRecordingCentral = true;
         micLabelCentral.textContent = "Grabando (central)...";
         micLabelCentral.style.display = "block";

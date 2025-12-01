@@ -102,6 +102,7 @@
 
     let mediaStreamTaxi = null;
     let mediaRecorderTaxi = null;
+    let audioChunksTaxi = [];
     let isRecordingTaxi = false;
     let tengoTurnoTaxi = false;
 
@@ -213,8 +214,8 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // 🔊 Recibir audio en tiempo real
-    socket.on("audioChunk", (data) => {
+    // 🔊 Recibir audio
+    socket.on("audioMensaje", (data) => {
       if (!data || !data.audio) return;
       const blob = new Blob([data.audio], { type: "audio/webm;codecs=opus" });
       const url = URL.createObjectURL(blob);
@@ -257,7 +258,7 @@
       }
     });
 
-    // ---- MICRÓFONO TAXI (streaming tipo radio) ----
+    // ---- MICRÓFONO TAXI (1 audio por pulsación) ----
     async function initMediaTaxi() {
       if (mediaStreamTaxi) return;
       try {
@@ -279,21 +280,30 @@
       initMediaTaxi().then(() => {
         if (!mediaStreamTaxi) return;
 
+        audioChunksTaxi = [];
         mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi, {
           mimeType: "audio/webm;codecs=opus",
         });
 
         mediaRecorderTaxi.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) {
-            socket.emit("audioChunk", {
-              rol: "taxi",
-              idTaxi: spIdTaxi.textContent,
-              audio: e.data,
-            });
+            audioChunksTaxi.push(e.data);
           }
         };
 
-        mediaRecorderTaxi.start(200); // chunks cada 200 ms
+        mediaRecorderTaxi.onstop = () => {
+          if (!tengoTurnoTaxi) return;
+          const blob = new Blob(audioChunksTaxi, {
+            type: "audio/webm;codecs=opus",
+          });
+          socket.emit("audioMensaje", {
+            rol: "taxi",
+            idTaxi: spIdTaxi.textContent,
+            audio: blob,
+          });
+        };
+
+        mediaRecorderTaxi.start();
         isRecordingTaxi = true;
         micLabelTaxi.textContent = "Grabando (taxi)...";
         micLabelTaxi.style.display = "block";
