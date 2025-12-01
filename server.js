@@ -97,7 +97,6 @@ io.on("connection", (socket) => {
         idTaxi: data.idTaxi || null,
         nombre: data.nombre || "",
       };
-      console.log("Turno concedido a:", socket.id, currentSpeakerInfo);
       socket.emit("ptt:granted");
       io.emit("ptt:speaker", currentSpeakerInfo); // todos ven quién habla
     } else {
@@ -107,35 +106,26 @@ io.on("connection", (socket) => {
 
   socket.on("ptt:release", () => {
     if (currentSpeaker === socket.id) {
-      console.log("Turno liberado por:", socket.id);
       currentSpeaker = null;
       currentSpeakerInfo = null;
       io.emit("ptt:released");
     }
   });
 
-  // 🔊 Audio de un solo bloque por pulsación
-  // data: { rol, idTaxi?, audio: Blob/bin }
+  // 🔊 Audio por pulsación (ArrayBuffer)
+  // data: { rol, idTaxi?, audio: ArrayBuffer }
   socket.on("audioMensaje", (data) => {
-    if (socket.id !== currentSpeaker) {
-      return; // ignorar si no es el que tiene el turno
-    }
-    // Reenviar a todos MENOS al que habla (broadcast)
-    socket.broadcast.emit("audioMensaje", {
-      ...data,
-      speaker: currentSpeakerInfo,
-    });
+    if (socket.id !== currentSpeaker) return; // solo habla quien tiene turno
+    // Reenviar a todos MENOS al hablante
+    socket.broadcast.emit("audioMensaje", data);
   });
 
   // ---------------------- DESCONEXIÓN ----------------------------
   socket.on("disconnect", () => {
-    console.log("Cliente desconectado:", socket.id);
-
     if (taxis[socket.id]) {
       delete taxis[socket.id];
       enviarListaTaxis();
     }
-
     if (currentSpeaker === socket.id) {
       currentSpeaker = null;
       currentSpeakerInfo = null;

@@ -145,7 +145,7 @@ button:hover {
   z-index: 9999;
 }
 
-/* Para los labels de quién habla (los reusamos) */
+/* etiqueta izquierda (quién habla) */
 .mic-label.left {
   left: 20px;
   right: auto;

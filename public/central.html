@@ -380,17 +380,12 @@
         });
     }
 
-    // ---- MICRÓFONO CENTRAL (1 audio por pulsación) ----
+    // ---- MICRÓFONO CENTRAL (1 audio por pulsación, ArrayBuffer) ----
     async function initMediaCentral() {
       if (mediaStreamCentral) return;
       try {
         mediaStreamCentral = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            sampleRate: 16000,
-            echoCancellation: true,
-            noiseSuppression: true,
-          },
+          audio: true,
         });
       } catch (e) {
         alert("No se pudo acceder al micrófono de la central: " + e.message);
@@ -415,16 +410,23 @@
 
         mediaRecorderCentral.onstop = () => {
           if (!tengoTurnoCentral) return;
+
           const blob = new Blob(audioChunksCentral, {
             type: "audio/webm;codecs=opus",
           });
-          socket.emit("audioMensaje", {
-            rol: "central",
-            audio: blob,
-          });
+
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const arrayBuffer = reader.result;
+            socket.emit("audioMensaje", {
+              rol: "central",
+              audio: arrayBuffer,
+            });
+          };
+          reader.readAsArrayBuffer(blob);
         };
 
-        mediaRecorderCentral.start(); // sin timeslice: 1 audio por pulsación
+        mediaRecorderCentral.start();
         isRecordingCentral = true;
         micLabelCentral.textContent = "Grabando (central)...";
         micLabelCentral.style.display = "block";

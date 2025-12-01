@@ -9,7 +9,7 @@
 </head>
 <body>
   <div class="header-exclusivo">
-    <h1>TAXI EXCLUCIVO</h1>
+    <h1>TAXI EXCLUSIVO</h1>
     <h2>UNIDAD</h2>
     <small>Radio directa con central • Tel: 959 757 590</small>
   </div>
@@ -258,17 +258,12 @@
       }
     });
 
-    // ---- MICRÓFONO TAXI (1 audio por pulsación) ----
+    // ---- MICRÓFONO TAXI (1 audio por pulsación, ArrayBuffer) ----
     async function initMediaTaxi() {
       if (mediaStreamTaxi) return;
       try {
         mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            sampleRate: 16000,
-            echoCancellation: true,
-            noiseSuppression: true,
-          },
+          audio: true,
         });
       } catch (e) {
         alert("No se pudo acceder al micrófono del taxi: " + e.message);
@@ -293,14 +288,21 @@
 
         mediaRecorderTaxi.onstop = () => {
           if (!tengoTurnoTaxi) return;
+
           const blob = new Blob(audioChunksTaxi, {
             type: "audio/webm;codecs=opus",
           });
-          socket.emit("audioMensaje", {
-            rol: "taxi",
-            idTaxi: spIdTaxi.textContent,
-            audio: blob,
-          });
+
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const arrayBuffer = reader.result;
+            socket.emit("audioMensaje", {
+              rol: "taxi",
+              idTaxi: spIdTaxi.textContent,
+              audio: arrayBuffer,
+            });
+          };
+          reader.readAsArrayBuffer(blob);
         };
 
         mediaRecorderTaxi.start();
