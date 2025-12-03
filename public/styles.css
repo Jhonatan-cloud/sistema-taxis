@@ -11,14 +11,13 @@ body {
   color: #f1f1f1;
 }
 
-/* CONTENEDOR GENERAL */
 .container {
   max-width: 1200px;
   margin: 0 auto;
   padding: 15px;
 }
 
-/* HEADER TIPO PLACA DORADA */
+/* Cabecera Taxi Exclusivo */
 .header-exclusivo {
   margin: 10px auto 20px;
   padding: 15px 20px;
@@ -45,7 +44,7 @@ body {
   font-size: 12px;
 }
 
-/* TARJETAS */
+/* Tarjetas */
 .card {
   background: rgba(20, 20, 20, 0.9);
   border-radius: 10px;
@@ -109,7 +108,7 @@ button:hover {
   margin-top: 80px;
 }
 
-/* Botón flotante de micrófono */
+/* Botón flotante mic */
 .mic-btn {
   position: fixed;
   right: 20px;
@@ -145,7 +144,7 @@ button:hover {
   z-index: 9999;
 }
 
-/* etiqueta izquierda (quién habla) */
+/* Texto de quién habla, lado izq */
 .mic-label.left {
   left: 20px;
   right: auto;

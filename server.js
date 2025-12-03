@@ -16,14 +16,15 @@ let taxis = {};
 // servicios: { id, taxiSocketId, taxiNombre, direccion, estado }
 let servicios = [];
 
-// 🔥 CONTROL RADIO: solo uno habla a la vez
-let currentSpeaker = null;      // socket.id que tiene el turno
-let currentSpeakerInfo = null;  // { rol, idTaxi, nombre }
+// 🔥 RADIO: canal ocupado / libre (solo uno habla)
+let canalOcupado = false;      // true = alguien está hablando
+let infoHablando = null;       // { rol, idTaxi, nombre }
 
+// ---------------------- SOCKET.IO ----------------------
 io.on("connection", (socket) => {
   console.log("Nuevo cliente conectado:", socket.id);
 
-  // ---------------------- REGISTRO TAXI ----------------------
+  // Registro de taxi
   socket.on("registrarTaxi", (data) => {
     taxis[socket.id] = {
       idTaxi: data.idTaxi,
@@ -35,7 +36,7 @@ io.on("connection", (socket) => {
     enviarListaTaxis();
   });
 
-  // ---------------------- UBICACIÓN ----------------------------
+  // Actualizar ubicación
   socket.on("actualizarUbicacion", (data) => {
     if (taxis[socket.id]) {
       taxis[socket.id].lat = data.lat;
@@ -44,7 +45,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ---------------------- SERVICIOS ----------------------------
+  // Asignar servicio (central)
   socket.on("asignarServicio", (data) => {
     const taxi = taxis[data.socketIdTaxi];
     if (!taxi) return;
@@ -66,6 +67,7 @@ io.on("connection", (socket) => {
     io.emit("listaServicios", servicios);
   });
 
+  // Cambio de estado de servicio (taxi)
   socket.on("estadoServicio", (data) => {
     const servicio = servicios.find((s) => s.id === data.idServicio);
     if (!servicio) return;
@@ -80,56 +82,63 @@ io.on("connection", (socket) => {
     io.emit("listaServicios", servicios);
   });
 
-  // ---------------------- CHAT TEXTO ----------------------------
+  // Chat texto
   socket.on("mensajeChat", (data) => {
     io.emit("mensajeChat", data);
   });
 
-  // --------------------------------------------------------------------
-  // 🔥 RADIO PTT
-  // --------------------------------------------------------------------
-  // data: { rol: "central" | "taxi", idTaxi?, nombre? }
-  socket.on("ptt:request", (data) => {
-    if (!currentSpeaker) {
-      currentSpeaker = socket.id;
-      currentSpeakerInfo = {
+  // -------------------------------------------------
+  // 🔥 RADIO: controlar canal ocupado/libre
+  // data: { rol: "central"|"taxi", idTaxi?, nombre? }
+  // -------------------------------------------------
+  socket.on("canalOcupado", (data) => {
+    if (!canalOcupado) {
+      canalOcupado = true;
+      infoHablando = {
         rol: data.rol,
         idTaxi: data.idTaxi || null,
         nombre: data.nombre || "",
+        socketId: socket.id,
       };
-      socket.emit("ptt:granted");
-      io.emit("ptt:speaker", currentSpeakerInfo); // todos ven quién habla
+      // avisar a todos quién habla
+      io.emit("canalOcupado", infoHablando);
+      socket.emit("puedesHablar"); // el que lo pidió, puede grabar
     } else {
-      socket.emit("ptt:denied");
+      // canal ya ocupado
+      socket.emit("canalRechazado");
     }
   });
 
-  socket.on("ptt:release", () => {
-    if (currentSpeaker === socket.id) {
-      currentSpeaker = null;
-      currentSpeakerInfo = null;
-      io.emit("ptt:released");
+  socket.on("canalLibre", () => {
+    if (infoHablando && infoHablando.socketId === socket.id) {
+      canalOcupado = false;
+      infoHablando = null;
+      io.emit("canalLibre");
     }
   });
 
-  // 🔊 Audio por pulsación (ArrayBuffer)
-  // data: { rol, idTaxi?, audio: ArrayBuffer }
-  socket.on("audioMensaje", (data) => {
-    if (socket.id !== currentSpeaker) return; // solo habla quien tiene turno
-    // Reenviar a todos MENOS al hablante
-    socket.broadcast.emit("audioMensaje", data);
+  // 🔊 audio en streaming (chunks rápidos)
+  // data: { rol, idTaxi?, chunk }
+  socket.on("audioChunk", (data) => {
+    if (!infoHablando || infoHablando.socketId !== socket.id) {
+      // ignora si no es el que tiene el canal
+      return;
+    }
+    // reenviar a todos MENOS al que habla
+    socket.broadcast.emit("audioChunk", data);
   });
 
-  // ---------------------- DESCONEXIÓN ----------------------------
+  // Desconexión
   socket.on("disconnect", () => {
+    console.log("Cliente desconectado:", socket.id);
     if (taxis[socket.id]) {
       delete taxis[socket.id];
       enviarListaTaxis();
     }
-    if (currentSpeaker === socket.id) {
-      currentSpeaker = null;
-      currentSpeakerInfo = null;
-      io.emit("ptt:released");
+    if (infoHablando && infoHablando.socketId === socket.id) {
+      canalOcupado = false;
+      infoHablando = null;
+      io.emit("canalLibre");
     }
   });
 });
@@ -138,6 +147,7 @@ function enviarListaTaxis() {
   io.emit("listaTaxis", taxis);
 }
 
+// Ruta base
 app.get("/", (req, res) => {
   res.send("<h1>Sistema de taxis funcionando. Usa /central.html o /taxi.html</h1>");
 });

@@ -122,9 +122,9 @@
 
     let mediaStreamCentral = null;
     let mediaRecorderCentral = null;
-    let audioChunksCentral = [];
     let isRecordingCentral = false;
-    let tengoTurnoCentral = false;
+    let yoHablando = false;      // soy yo el que ocupa el canal
+    let canalOcupadoLocal = false;
 
     let taxis = {};
     let map = null;
@@ -148,11 +148,9 @@
       if (!map) return;
 
       const idsActuales = Object.keys(taxis);
-
       idsActuales.forEach((id) => {
         const t = taxis[id];
         if (t.lat == null || t.lng == null) return;
-
         const pos = { lat: t.lat, lng: t.lng };
 
         if (!markers[id]) {
@@ -166,40 +164,29 @@
           markers[id].setPosition(pos);
         }
 
-        if (destinos[id]) {
-          crearOActualizarRuta(id);
-        }
+        if (destinos[id]) crearOActualizarRuta(id);
       });
 
       Object.keys(markers).forEach((id) => {
         if (!taxis[id]) {
           markers[id].setMap(null);
           delete markers[id];
-
-          if (destMarkers[id]) {
-            destMarkers[id].setMap(null);
-            delete destMarkers[id];
-          }
-          if (polylines[id]) {
-            polylines[id].setMap(null);
-            delete polylines[id];
-          }
+          if (destMarkers[id]) { destMarkers[id].setMap(null); delete destMarkers[id]; }
+          if (polylines[id]) { polylines[id].setMap(null); delete polylines[id]; }
         }
       });
     }
 
     function crearOActualizarRuta(socketIdTaxi) {
       if (!markers[socketIdTaxi] || !destinos[socketIdTaxi]) return;
-
       const origen = markers[socketIdTaxi].getPosition();
       const destino = destinos[socketIdTaxi];
-
       const path = [origen, destino];
 
       if (!polylines[socketIdTaxi]) {
         polylines[socketIdTaxi] = new google.maps.Polyline({
-          map: map,
-          path: path,
+          map,
+          path,
           strokeColor: "#ffff00",
           strokeWeight: 4,
         });
@@ -232,50 +219,62 @@
       chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
     });
 
-    // 🔊 Recibir audio (1 bloque por pulsación)
-    socket.on("audioMensaje", (data) => {
-      if (!data || !data.audio) return;
-      const blob = new Blob([data.audio], { type: "audio/webm;codecs=opus" });
+    // 🔊 Recibir audio (central NUNCA se escucha a sí misma)
+    socket.on("audioChunk", (data) => {
+      if (!data || !data.chunk) return;
+
+      // si el que envió es la propia central, no reproducir
+      if (data.rol === "central") return;
+
+      const blob = data.chunk instanceof Blob
+        ? data.chunk
+        : new Blob([data.chunk], { type: "audio/webm;codecs=opus" });
+
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
-      audio.play();
+      audio.play().catch(err => {
+        console.error("Error al reproducir audio CENTRAL:", err);
+      });
     });
 
-    // 🟢 Saber quién habla
-    socket.on("ptt:speaker", (info) => {
+    // Indicador de canal ocupado / libre
+    socket.on("canalOcupado", (info) => {
+      canalOcupadoLocal = true;
       let texto = "Hablando: ";
       if (info.rol === "central") {
         texto += "CENTRAL";
       } else if (info.rol === "taxi") {
         texto += `Taxi ${info.idTaxi || ""}${info.nombre ? " - " + info.nombre : ""}`;
-      } else {
-        texto += "Desconocido";
       }
       lblHablandoCentral.textContent = texto;
       lblHablandoCentral.style.display = "block";
     });
 
-    socket.on("ptt:released", () => {
-      lblHablandoCentral.style.display = "none";
+    socket.on("canalLibre", () => {
+      canalOcupadoLocal = false;
+      if (!yoHablando) {
+        lblHablandoCentral.style.display = "none";
+      }
     });
 
-    // Turno central
-    socket.on("ptt:granted", () => {
-      tengoTurnoCentral = true;
+    // Respuesta cuando central pidió ocupar canal
+    socket.on("puedesHablar", () => {
+      yoHablando = true;
       startRecordingCentral();
     });
 
-    socket.on("ptt:denied", () => {
-      tengoTurnoCentral = false;
+    socket.on("canalRechazado", () => {
+      yoHablando = false;
       if (!isRecordingCentral) {
         micLabelCentral.textContent = "Canal ocupado...";
         micLabelCentral.style.display = "block";
         setTimeout(() => {
           if (!isRecordingCentral) micLabelCentral.style.display = "none";
-        }, 800);
+        }, 700);
       }
     });
 
+    // ---- UI de servicios ----
     btnAsignar.addEventListener("click", () => {
       const socketIdTaxi = selectTaxi.value;
       const direccion = txtDireccion.value.trim();
@@ -292,12 +291,10 @@
             const location = results[0].geometry.location;
             destinos[socketIdTaxi] = location;
 
-            if (destMarkers[socketIdTaxi]) {
-              destMarkers[socketIdTaxi].setMap(null);
-            }
+            if (destMarkers[socketIdTaxi]) destMarkers[socketIdTaxi].setMap(null);
             destMarkers[socketIdTaxi] = new google.maps.Marker({
               position: location,
-              map: map,
+              map,
               title: "Destino del servicio",
               icon: "https://maps.gstatic.com/mapfiles/ms2/micons/flag.png",
             });
@@ -362,25 +359,22 @@
         return;
       }
 
-      servicios
-        .slice()
-        .reverse()
-        .forEach((s) => {
-          const div = document.createElement("div");
-          div.innerHTML = `
-            <p>
-              <strong>Servicio #${s.id}</strong><br />
-              Taxi: ${s.taxiNombre}<br/>
-              Dirección: ${s.direccion}<br/>
-              Estado: <span class="badge">${s.estado}</span>
-            </p>
-            <hr/>
-          `;
-          listaServiciosDiv.appendChild(div);
-        });
+      servicios.slice().reverse().forEach((s) => {
+        const div = document.createElement("div");
+        div.innerHTML = `
+          <p>
+            <strong>Servicio #${s.id}</strong><br />
+            Taxi: ${s.taxiNombre}<br/>
+            Dirección: ${s.direccion}<br/>
+            Estado: <span class="badge">${s.estado}</span>
+          </p>
+          <hr/>
+        `;
+        listaServiciosDiv.appendChild(div);
+      });
     }
 
-    // ---- MICRÓFONO CENTRAL (1 audio por pulsación, ArrayBuffer) ----
+    // ---- MICRÓFONO CENTRAL (streaming rápido) ----
     async function initMediaCentral() {
       if (mediaStreamCentral) return;
       try {
@@ -397,36 +391,22 @@
       initMediaCentral().then(() => {
         if (!mediaStreamCentral) return;
 
-        audioChunksCentral = [];
         mediaRecorderCentral = new MediaRecorder(mediaStreamCentral, {
           mimeType: "audio/webm;codecs=opus",
         });
 
         mediaRecorderCentral.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) {
-            audioChunksCentral.push(e.data);
+          if (e.data && e.data.size > 0 && yoHablando) {
+            // enviar chunk rápido
+            socket.emit("audioChunk", {
+              rol: "central",
+              chunk: e.data,
+            });
           }
         };
 
-        mediaRecorderCentral.onstop = () => {
-          if (!tengoTurnoCentral) return;
-
-          const blob = new Blob(audioChunksCentral, {
-            type: "audio/webm;codecs=opus",
-          });
-
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const arrayBuffer = reader.result;
-            socket.emit("audioMensaje", {
-              rol: "central",
-              audio: arrayBuffer,
-            });
-          };
-          reader.readAsArrayBuffer(blob);
-        };
-
-        mediaRecorderCentral.start();
+        // chunks cada 200 ms (rápido tipo radio)
+        mediaRecorderCentral.start(200);
         isRecordingCentral = true;
         micLabelCentral.textContent = "Grabando (central)...";
         micLabelCentral.style.display = "block";
@@ -435,7 +415,7 @@
     }
 
     function stopRecordingCentral() {
-      if (!tengoTurnoCentral) return;
+      if (!yoHablando) return;
 
       if (mediaRecorderCentral && isRecordingCentral) {
         mediaRecorderCentral.stop();
@@ -444,13 +424,21 @@
       btnMicCentral.classList.remove("recording");
       micLabelCentral.style.display = "none";
 
-      socket.emit("ptt:release");
-      tengoTurnoCentral = false;
+      yoHablando = false;
+      socket.emit("canalLibre");
     }
 
-    function requestTurnoCentral() {
-      if (isRecordingCentral || tengoTurnoCentral) return;
-      socket.emit("ptt:request", {
+    function requestCanalCentral() {
+      if (yoHablando) return;
+      if (canalOcupadoLocal) {
+        micLabelCentral.textContent = "Canal ocupado...";
+        micLabelCentral.style.display = "block";
+        setTimeout(() => {
+          if (!yoHablando) micLabelCentral.style.display = "none";
+        }, 700);
+        return;
+      }
+      socket.emit("canalOcupado", {
         rol: "central",
         nombre: "CENTRAL",
       });
@@ -459,7 +447,7 @@
     ["mousedown", "touchstart"].forEach((ev) => {
       btnMicCentral.addEventListener(ev, (e) => {
         e.preventDefault();
-        requestTurnoCentral();
+        requestCanalCentral();
       });
     });
 
