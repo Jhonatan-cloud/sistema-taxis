@@ -16,11 +16,7 @@ let taxis = {};
 // servicios: { id, taxiSocketId, taxiNombre, direccion, estado }
 let servicios = [];
 
-// 🔥 RADIO: canal ocupado / libre (solo uno habla)
-let canalOcupado = false;      // true = alguien está hablando
-let infoHablando = null;       // { rol, idTaxi, nombre, socketId }
-
-// ---------------------- SOCKET.IO ----------------------
+// ---------------- SOCKET.IO ----------------
 io.on("connection", (socket) => {
   console.log("Nuevo cliente conectado:", socket.id);
 
@@ -87,45 +83,11 @@ io.on("connection", (socket) => {
     io.emit("mensajeChat", data);
   });
 
-  // -------------------------------------------------
-  // 🔥 RADIO: controlar canal ocupado/libre
-  // data: { rol: "central"|"taxi", idTaxi?, nombre? }
-  // -------------------------------------------------
-  socket.on("canalOcupado", (data) => {
-    if (!canalOcupado) {
-      canalOcupado = true;
-      infoHablando = {
-        rol: data.rol,
-        idTaxi: data.idTaxi || null,
-        nombre: data.nombre || "",
-        socketId: socket.id,
-      };
-      console.log("Canal ocupado por:", infoHablando);
-      io.emit("canalOcupado", infoHablando); // todos saben quién habla
-      socket.emit("puedesHablar");           // el que pidió, puede enviar audio
-    } else {
-      socket.emit("canalRechazado");
-    }
-  });
-
-  socket.on("canalLibre", () => {
-    if (infoHablando && infoHablando.socketId === socket.id) {
-      console.log("Canal liberado por:", infoHablando);
-      canalOcupado = false;
-      infoHablando = null;
-      io.emit("canalLibre");
-    }
-  });
-
-  // 🔊 audio en streaming (bloques pequeños)
-  // data: { rol, idTaxi?, audio: ArrayBuffer }
-  socket.on("audioChunk", (data) => {
-    if (!infoHablando || infoHablando.socketId !== socket.id) {
-      // ignora si no es el que tiene el canal
-      return;
-    }
-    // reenviar a todos MENOS al que habla
-    socket.broadcast.emit("audioChunk", data);
+  // 🔊 AUDIO SENCILLO: recibo Blob y lo reenvío
+  // data: { rol: "central"|"taxi", idTaxi?, para, audio: Blob }
+  socket.on("audioMensaje", (data) => {
+    // reenviar a TODOS (central y taxis)
+    io.emit("audioMensaje", data);
   });
 
   // Desconexión
@@ -134,11 +96,6 @@ io.on("connection", (socket) => {
     if (taxis[socket.id]) {
       delete taxis[socket.id];
       enviarListaTaxis();
-    }
-    if (infoHablando && infoHablando.socketId === socket.id) {
-      canalOcupado = false;
-      infoHablando = null;
-      io.emit("canalLibre");
     }
   });
 });

@@ -83,7 +83,7 @@
     Nadie hablando
   </div>
 
-  <script>
+ <script>
   const socket = io();
 
   // LOGIN
@@ -122,9 +122,8 @@
 
   let mediaStreamCentral = null;
   let mediaRecorderCentral = null;
+  let audioChunksCentral = [];
   let isRecordingCentral = false;
-  let yoHablandoCentral = false;
-  let canalOcupadoLocal = false;
 
   let taxis = {};
   let map = null;
@@ -219,57 +218,36 @@
     chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
   });
 
-  // 🔊 Recibir audio (central nunca se escucha a sí misma)
-  socket.on("audioChunk", (data) => {
+  // 🔊 RECIBIR AUDIO EN CENTRAL
+  socket.on("audioMensaje", (data) => {
     if (!data || !data.audio) return;
-    if (data.rol === "central") return; // no reproducir mi propio audio
 
-    const blob = new Blob([data.audio], { type: "audio/webm;codecs=opus" });
+    // Central NO se escucha a sí misma
+    if (data.rol === "central") return;
+
+    const blob = data.audio instanceof Blob
+      ? data.audio
+      : new Blob([data.audio], { type: "audio/webm" });
+
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
-    audio.play().catch(err => {
+    audio.play().catch((err) => {
       console.error("Error al reproducir audio CENTRAL:", err);
     });
   });
 
-  // Indicador de canal ocupado / libre
-  socket.on("canalOcupado", (info) => {
-    canalOcupadoLocal = true;
-    let texto = "Hablando: ";
-    if (info.rol === "central") {
-      texto += "CENTRAL";
-    } else if (info.rol === "taxi") {
-      texto += `Taxi ${info.idTaxi || ""}${info.nombre ? " - " + info.nombre : ""}`;
-    }
-    lblHablandoCentral.textContent = texto;
-    lblHablandoCentral.style.display = "block";
+  // Chat texto
+  btnEnviarMensaje.addEventListener("click", () => {
+    const mensaje = txtMensaje.value.trim();
+    if (!mensaje) return;
+    socket.emit("mensajeChat", {
+      desde: "CENTRAL",
+      para: "taxis",
+      mensaje,
+    });
+    txtMensaje.value = "";
   });
 
-  socket.on("canalLibre", () => {
-    canalOcupadoLocal = false;
-    if (!yoHablandoCentral) {
-      lblHablandoCentral.style.display = "none";
-    }
-  });
-
-  // Respuesta cuando central pide canal
-  socket.on("puedesHablar", () => {
-    yoHablandoCentral = true;
-    startRecordingCentral();
-  });
-
-  socket.on("canalRechazado", () => {
-    yoHablandoCentral = false;
-    if (!isRecordingCentral) {
-      micLabelCentral.textContent = "Canal ocupado...";
-      micLabelCentral.style.display = "block";
-      setTimeout(() => {
-        if (!isRecordingCentral) micLabelCentral.style.display = "none";
-      }, 700);
-    }
-  });
-
-  // ---- UI servicios / chat ----
   btnAsignar.addEventListener("click", () => {
     const socketIdTaxi = selectTaxi.value;
     const direccion = txtDireccion.value.trim();
@@ -302,17 +280,6 @@
     }
 
     txtDireccion.value = "";
-  });
-
-  btnEnviarMensaje.addEventListener("click", () => {
-    const mensaje = txtMensaje.value.trim();
-    if (!mensaje) return;
-    socket.emit("mensajeChat", {
-      desde: "CENTRAL",
-      para: "taxis",
-      mensaje,
-    });
-    txtMensaje.value = "";
   });
 
   function renderTaxis() {
@@ -369,7 +336,7 @@
     });
   }
 
-  // ---- MICRÓFONO CENTRAL (streaming rápido con ArrayBuffer) ----
+  // ---- MICRÓFONO CENTRAL (Blob único al soltar) ----
   async function initMediaCentral() {
     if (mediaStreamCentral) return;
     try {
@@ -383,67 +350,50 @@
 
   function startRecordingCentral() {
     if (isRecordingCentral) return;
+
     initMediaCentral().then(() => {
       if (!mediaStreamCentral) return;
 
+      audioChunksCentral = [];
       mediaRecorderCentral = new MediaRecorder(mediaStreamCentral, {
-        mimeType: "audio/webm;codecs=opus",
+        mimeType: "audio/webm",
       });
 
       mediaRecorderCentral.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0 && yoHablandoCentral) {
-          e.data.arrayBuffer().then((buf) => {
-            socket.emit("audioChunk", {
-              rol: "central",
-              audio: buf, // ArrayBuffer
-            });
-          });
+        if (e.data && e.data.size > 0) {
+          audioChunksCentral.push(e.data);
         }
       };
 
-      // chunks cada 200ms (rápido)
-      mediaRecorderCentral.start(200);
+      mediaRecorderCentral.onstop = () => {
+        if (audioChunksCentral.length === 0) return;
+        const blob = new Blob(audioChunksCentral, { type: "audio/webm" });
+        socket.emit("audioMensaje", {
+          rol: "central",
+          para: "taxis",
+          audio: blob,
+        });
+      };
+
+      mediaRecorderCentral.start();
       isRecordingCentral = true;
-      micLabelCentral.textContent = "Grabando (central)...";
-      micLabelCentral.style.display = "block";
       btnMicCentral.classList.add("recording");
+      micLabelCentral.style.display = "block";
     });
   }
 
   function stopRecordingCentral() {
-    if (!yoHablandoCentral) return;
-
-    if (mediaRecorderCentral && isRecordingCentral) {
-      mediaRecorderCentral.stop();
-    }
+    if (!isRecordingCentral || !mediaRecorderCentral) return;
+    mediaRecorderCentral.stop();
     isRecordingCentral = false;
     btnMicCentral.classList.remove("recording");
     micLabelCentral.style.display = "none";
-
-    yoHablandoCentral = false;
-    socket.emit("canalLibre");
-  }
-
-  function requestCanalCentral() {
-    if (yoHablandoCentral) return;
-    if (canalOcupadoLocal) {
-      micLabelCentral.textContent = "Canal ocupado...";
-      micLabelCentral.style.display = "block";
-      setTimeout(() => {
-        if (!yoHablandoCentral) micLabelCentral.style.display = "none";
-      }, 700);
-      return;
-    }
-    socket.emit("canalOcupado", {
-      rol: "central",
-      nombre: "CENTRAL",
-    });
   }
 
   ["mousedown", "touchstart"].forEach((ev) => {
     btnMicCentral.addEventListener(ev, (e) => {
       e.preventDefault();
-      requestCanalCentral();
+      startRecordingCentral();
     });
   });
 
@@ -454,7 +404,6 @@
     });
   });
 </script>
-
   <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB_AwwkYMfrvI-mPmQoNAmKA3L25qoBb1s&callback=initMap"></script>
 </body>
 </html>
