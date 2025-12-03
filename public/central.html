@@ -77,6 +77,9 @@
   <div id="micLabelCentral" class="mic-label" style="display:none;">
     Grabando (central)...
   </div>
+  <div id="lblHablandoCentral" class="mic-label" style="display:none; left:20px; right:auto;">
+  Nadie hablando
+  </div>
 
   <!-- Indicador de quién está hablando -->
   <div id="lblHablandoCentral" class="mic-label left" style="display:none;">
@@ -124,6 +127,10 @@
   let mediaRecorderCentral = null;
   let audioChunksCentral = [];
   let isRecordingCentral = false;
+
+  // radio flags
+  let puedoHablarCentral = false;
+  let canalOcupadoLocal = false;
 
   let taxis = {};
   let map = null;
@@ -218,12 +225,10 @@
     chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
   });
 
-  // 🔊 RECIBIR AUDIO EN CENTRAL
+  // 🔊 RECIBIR AUDIO EN CENTRAL (igual que antes)
   socket.on("audioMensaje", (data) => {
     if (!data || !data.audio) return;
-
-    // Central NO se escucha a sí misma
-    if (data.rol === "central") return;
+    if (data.rol === "central") return; // no me escucho a mí mismo
 
     const blob = data.audio instanceof Blob
       ? data.audio
@@ -234,6 +239,42 @@
     audio.play().catch((err) => {
       console.error("Error al reproducir audio CENTRAL:", err);
     });
+  });
+
+  // 🔒 ESTADO DEL CANAL (radio)
+  socket.on("estadoCanal", (estado) => {
+    if (!estado || !estado.ocupado) {
+      canalOcupadoLocal = false;
+      lblHablandoCentral.style.display = "none";
+      return;
+    }
+
+    canalOcupadoLocal = true;
+    let texto = "Hablando: ";
+    if (estado.rol === "central") {
+      texto += "CENTRAL";
+    } else if (estado.rol === "taxi") {
+      texto += `Taxi ${estado.idTaxi || ""}${estado.nombre ? " - " + estado.nombre : ""}`;
+    }
+    lblHablandoCentral.textContent = texto;
+    lblHablandoCentral.style.display = "block";
+  });
+
+  // respuesta a solicitud de canal
+  socket.on("canalConcedido", () => {
+    puedoHablarCentral = true;
+    startRecordingCentral();
+  });
+
+  socket.on("canalDenegado", () => {
+    puedoHablarCentral = false;
+    if (!isRecordingCentral) {
+      micLabelCentral.textContent = "Canal ocupado...";
+      micLabelCentral.style.display = "block";
+      setTimeout(() => {
+        if (!isRecordingCentral) micLabelCentral.style.display = "none";
+      }, 700);
+    }
   });
 
   // Chat texto
@@ -336,7 +377,7 @@
     });
   }
 
-  // ---- MICRÓFONO CENTRAL (Blob único al soltar) ----
+  // ---- MICRÓFONO CENTRAL (mismo audio de antes) ----
   async function initMediaCentral() {
     if (mediaStreamCentral) return;
     try {
@@ -378,22 +419,47 @@
       mediaRecorderCentral.start();
       isRecordingCentral = true;
       btnMicCentral.classList.add("recording");
+      micLabelCentral.textContent = "Grabando (central)...";
       micLabelCentral.style.display = "block";
     });
   }
 
   function stopRecordingCentral() {
-    if (!isRecordingCentral || !mediaRecorderCentral) return;
-    mediaRecorderCentral.stop();
+    if (!puedoHablarCentral) return;
+
+    if (isRecordingCentral && mediaRecorderCentral) {
+      mediaRecorderCentral.stop();
+    }
     isRecordingCentral = false;
     btnMicCentral.classList.remove("recording");
     micLabelCentral.style.display = "none";
+
+    puedoHablarCentral = false;
+    socket.emit("liberarCanal");
+  }
+
+  function solicitarCanalCentral() {
+    if (puedoHablarCentral || isRecordingCentral) return;
+
+    if (canalOcupadoLocal) {
+      micLabelCentral.textContent = "Canal ocupado...";
+      micLabelCentral.style.display = "block";
+      setTimeout(() => {
+        if (!puedoHablarCentral) micLabelCentral.style.display = "none";
+      }, 700);
+      return;
+    }
+
+    socket.emit("solicitarCanal", {
+      rol: "central",
+      nombre: "CENTRAL",
+    });
   }
 
   ["mousedown", "touchstart"].forEach((ev) => {
     btnMicCentral.addEventListener(ev, (e) => {
       e.preventDefault();
-      startRecordingCentral();
+      solicitarCanalCentral();
     });
   });
 

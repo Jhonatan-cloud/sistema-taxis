@@ -16,7 +16,10 @@ let taxis = {};
 // servicios: { id, taxiSocketId, taxiNombre, direccion, estado }
 let servicios = [];
 
-// ---------------- SOCKET.IO ----------------
+// 🔒 RADIO: solo uno habla a la vez
+let canalOcupado = false;   // true = alguien está hablando
+let infoCanal = null;       // { rol, idTaxi, nombre, socketId }
+
 io.on("connection", (socket) => {
   console.log("Nuevo cliente conectado:", socket.id);
 
@@ -83,7 +86,49 @@ io.on("connection", (socket) => {
     io.emit("mensajeChat", data);
   });
 
-  // 🔊 AUDIO SENCILLO: recibo Blob y lo reenvío
+  // 🔒 RADIO: pedir canal
+  // data: { rol: "central"|"taxi", idTaxi?, nombre? }
+  socket.on("solicitarCanal", (data) => {
+    if (!canalOcupado) {
+      canalOcupado = true;
+      infoCanal = {
+        rol: data.rol,
+        idTaxi: data.idTaxi || null,
+        nombre: data.nombre || "",
+        socketId: socket.id,
+      };
+      console.log("Canal ocupado por:", infoCanal);
+
+      // avisar quién está hablando
+      io.emit("estadoCanal", {
+        ocupado: true,
+        rol: infoCanal.rol,
+        idTaxi: infoCanal.idTaxi,
+        nombre: infoCanal.nombre,
+      });
+
+      // al que pidió, le concedemos hablar
+      socket.emit("canalConcedido");
+    } else {
+      // ya hay alguien hablando
+      socket.emit("canalDenegado");
+    }
+  });
+
+  // 🔓 RADIO: liberar canal
+  socket.on("liberarCanal", () => {
+    if (infoCanal && infoCanal.socketId === socket.id) {
+      console.log("Canal liberado por:", infoCanal);
+      canalOcupado = false;
+      infoCanal = null;
+
+      io.emit("estadoCanal", {
+        ocupado: false,
+      });
+    }
+  });
+
+  // 🔊 AUDIO (igual que antes: un Blob por pulsación)
   // data: { rol: "central"|"taxi", idTaxi?, para, audio: Blob }
   socket.on("audioMensaje", (data) => {
     // reenviar a TODOS (central y taxis)
@@ -96,6 +141,12 @@ io.on("connection", (socket) => {
     if (taxis[socket.id]) {
       delete taxis[socket.id];
       enviarListaTaxis();
+    }
+
+    if (infoCanal && infoCanal.socketId === socket.id) {
+      canalOcupado = false;
+      infoCanal = null;
+      io.emit("estadoCanal", { ocupado: false });
     }
   });
 });

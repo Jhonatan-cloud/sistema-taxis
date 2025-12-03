@@ -62,6 +62,10 @@
   <div id="micLabelTaxi" class="mic-label" style="display:none;">
     Grabando (taxi)...
   </div>
+  <div id="lblHablandoTaxi" class="mic-label" style="display:none; left:20px; right:auto;">
+  Nadie hablando
+  </div>
+
 
   <!-- Indicador de quién está hablando -->
   <div id="lblHablandoTaxi" class="mic-label left" style="display:none;">
@@ -103,6 +107,10 @@
   let mediaRecorderTaxi = null;
   let audioChunksTaxi = [];
   let isRecordingTaxi = false;
+
+  // radio flags
+  let puedoHablarTaxi = false;
+  let canalOcupadoLocal = false;
 
   let idServicioActual = null;
 
@@ -212,11 +220,11 @@
     chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
   });
 
-  // 🔊 RECIBIR AUDIO EN TAXI
+  // 🔊 RECIBIR AUDIO EN TAXI (igual que antes)
   socket.on("audioMensaje", (data) => {
     if (!data || !data.audio) return;
 
-    // Si soy yo mismo (este taxi), NO me reproduzco
+    // si soy yo mismo, no me reproduzco
     if (data.rol === "taxi" && data.idTaxi === spIdTaxi.textContent) {
       return;
     }
@@ -232,7 +240,43 @@
     });
   });
 
-  // ---- MICRÓFONO TAXI (Blob único al soltar) ----
+  // 🔒 ESTADO DEL CANAL (radio)
+  socket.on("estadoCanal", (estado) => {
+    if (!estado || !estado.ocupado) {
+      canalOcupadoLocal = false;
+      lblHablandoTaxi.style.display = "none";
+      return;
+    }
+
+    canalOcupadoLocal = true;
+    let texto = "Hablando: ";
+    if (estado.rol === "central") {
+      texto += "CENTRAL";
+    } else if (estado.rol === "taxi") {
+      texto += `Taxi ${estado.idTaxi || ""}${estado.nombre ? " - " + estado.nombre : ""}`;
+    }
+    lblHablandoTaxi.textContent = texto;
+    lblHablandoTaxi.style.display = "block";
+  });
+
+  // respuesta a solicitud de canal
+  socket.on("canalConcedido", () => {
+    puedoHablarTaxi = true;
+    startRecordingTaxi();
+  });
+
+  socket.on("canalDenegado", () => {
+    puedoHablarTaxi = false;
+    if (!isRecordingTaxi) {
+      micLabelTaxi.textContent = "Canal ocupado...";
+      micLabelTaxi.style.display = "block";
+      setTimeout(() => {
+        if (!isRecordingTaxi) micLabelTaxi.style.display = "none";
+      }, 700);
+    }
+  });
+
+  // ---- MICRÓFONO TAXI (mismo audio de antes) ----
   async function initMediaTaxi() {
     if (mediaStreamTaxi) return;
     try {
@@ -275,22 +319,48 @@
       mediaRecorderTaxi.start();
       isRecordingTaxi = true;
       btnMicTaxi.classList.add("recording");
+      micLabelTaxi.textContent = "Grabando (taxi)...";
       micLabelTaxi.style.display = "block";
     });
   }
 
   function stopRecordingTaxi() {
-    if (!isRecordingTaxi || !mediaRecorderTaxi) return;
-    mediaRecorderTaxi.stop();
+    if (!puedoHablarTaxi) return;
+
+    if (isRecordingTaxi && mediaRecorderTaxi) {
+      mediaRecorderTaxi.stop();
+    }
     isRecordingTaxi = false;
     btnMicTaxi.classList.remove("recording");
     micLabelTaxi.style.display = "none";
+
+    puedoHablarTaxi = false;
+    socket.emit("liberarCanal");
+  }
+
+  function solicitarCanalTaxi() {
+    if (puedoHablarTaxi || isRecordingTaxi) return;
+
+    if (canalOcupadoLocal) {
+      micLabelTaxi.textContent = "Canal ocupado...";
+      micLabelTaxi.style.display = "block";
+      setTimeout(() => {
+        if (!puedoHablarTaxi) micLabelTaxi.style.display = "none";
+      }, 700);
+      return;
+    }
+
+    socket.emit("solicitarCanal", {
+      rol: "taxi",
+      idTaxi: spIdTaxi.textContent,
+      nombre: spNombre.textContent,
+    });
   }
 
   ["mousedown", "touchstart"].forEach((ev) => {
     btnMicTaxi.addEventListener(ev, (e) => {
       e.preventDefault();
-      startRecordingTaxi();
+      solicitarCanalTaxi();
     });
   });
 
