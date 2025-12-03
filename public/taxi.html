@@ -69,290 +69,290 @@
   </div>
 
   <script>
-    const socket = io();
+  const socket = io();
 
-    const cardLogin = document.getElementById("cardLogin");
-    const cardApp = document.getElementById("cardApp");
+  const cardLogin = document.getElementById("cardLogin");
+  const cardApp = document.getElementById("cardApp");
 
-    const txtIdTaxi = document.getElementById("txtIdTaxi");
-    const txtNombre = document.getElementById("txtNombre");
-    const btnIngresar = document.getElementById("btnIngresar");
+  const txtIdTaxi = document.getElementById("txtIdTaxi");
+  const txtNombre = document.getElementById("txtNombre");
+  const btnIngresar = document.getElementById("btnIngresar");
 
-    const spNombre = document.getElementById("spNombre");
-    const spIdTaxi = document.getElementById("spIdTaxi");
-    const spEstado = document.getElementById("spEstado");
+  const spNombre = document.getElementById("spNombre");
+  const spIdTaxi = document.getElementById("spIdTaxi");
+  const spEstado = document.getElementById("spEstado");
 
-    const pUbicacion = document.getElementById("pUbicacion");
-    const btnSimularUbicacion = document.getElementById("btnSimularUbicacion");
+  const pUbicacion = document.getElementById("pUbicacion");
+  const btnSimularUbicacion = document.getElementById("btnSimularUbicacion");
 
-    const infoServicioDiv = document.getElementById("infoServicio");
-    const accionesServicioDiv = document.getElementById("accionesServicio");
-    const btnAceptar = document.getElementById("btnAceptar");
-    const btnEnCurso = document.getElementById("btnEnCurso");
-    const btnFinalizado = document.getElementById("btnFinalizado");
+  const infoServicioDiv = document.getElementById("infoServicio");
+  const accionesServicioDiv = document.getElementById("accionesServicio");
+  const btnAceptar = document.getElementById("btnAceptar");
+  const btnEnCurso = document.getElementById("btnEnCurso");
+  const btnFinalizado = document.getElementById("btnFinalizado");
 
-    const chatMensajesDiv = document.getElementById("chatMensajes");
-    const txtMensaje = document.getElementById("txtMensaje");
-    const btnEnviarMensaje = document.getElementById("btnEnviarMensaje");
+  const chatMensajesDiv = document.getElementById("chatMensajes");
+  const txtMensaje = document.getElementById("txtMensaje");
+  const btnEnviarMensaje = document.getElementById("btnEnviarMensaje");
 
-    const btnMicTaxi = document.getElementById("btnMicTaxi");
-    const micLabelTaxi = document.getElementById("micLabelTaxi");
-    const lblHablandoTaxi = document.getElementById("lblHablandoTaxi");
+  const btnMicTaxi = document.getElementById("btnMicTaxi");
+  const micLabelTaxi = document.getElementById("micLabelTaxi");
+  const lblHablandoTaxi = document.getElementById("lblHablandoTaxi");
 
-    let mediaStreamTaxi = null;
-    let mediaRecorderTaxi = null;
-    let isRecordingTaxi = false;
-    let yoHablandoTaxi = false;
-    let canalOcupadoLocal = false;
+  let mediaStreamTaxi = null;
+  let mediaRecorderTaxi = null;
+  let isRecordingTaxi = false;
+  let yoHablandoTaxi = false;
+  let canalOcupadoLocal = false;
 
-    let idServicioActual = null;
+  let idServicioActual = null;
 
-    btnIngresar.addEventListener("click", () => {
-      const idTaxi = txtIdTaxi.value.trim();
-      const nombre = txtNombre.value.trim();
-      if (!idTaxi || !nombre) {
-        alert("Completa ID Taxi y nombre.");
-        return;
-      }
-
-      socket.emit("registrarTaxi", { idTaxi, nombre });
-
-      spNombre.textContent = nombre;
-      spIdTaxi.textContent = idTaxi;
-
-      cardLogin.style.display = "none";
-      cardApp.style.display = "block";
-
-      iniciarGeolocalizacion();
-    });
-
-    // Servicios
-    socket.on("nuevoServicio", (servicio) => {
-      idServicioActual = servicio.id;
-      infoServicioDiv.innerHTML = `
-        <p>
-          <strong>Servicio #${servicio.id}</strong><br/>
-          Dirección de recojo: ${servicio.direccion}
-        </p>
-      `;
-      accionesServicioDiv.style.display = "block";
-      actualizarEstado("asignado");
-      alert("Tienes un nuevo servicio asignado.");
-    });
-
-    btnAceptar.addEventListener("click", () => {
-      cambiarEstadoServicio("aceptado");
-    });
-
-    btnEnCurso.addEventListener("click", () => {
-      cambiarEstadoServicio("en curso");
-    });
-
-    btnFinalizado.addEventListener("click", () => {
-      cambiarEstadoServicio("finalizado");
-      idServicioActual = null;
-      infoServicioDiv.innerHTML = "<p>No tienes servicios asignados.</p>";
-      accionesServicioDiv.style.display = "none";
-    });
-
-    function cambiarEstadoServicio(nuevoEstado) {
-      if (!idServicioActual) return;
-      socket.emit("estadoServicio", { idServicio: idServicioActual, nuevoEstado });
-      actualizarEstado(nuevoEstado);
+  // LOGIN TAXI
+  btnIngresar.addEventListener("click", () => {
+    const idTaxi = txtIdTaxi.value.trim();
+    const nombre = txtNombre.value.trim();
+    if (!idTaxi || !nombre) {
+      alert("Completa ID Taxi y nombre.");
+      return;
     }
 
-    function actualizarEstado(estado) {
-      spEstado.textContent = estado;
-    }
+    socket.emit("registrarTaxi", { idTaxi, nombre });
 
-    // Geolocalización
-    function iniciarGeolocalizacion() {
-      if ("geolocation" in navigator) {
-        navigator.geolocation.watchPosition(
-          (pos) => {
-            const lat = pos.coords.latitude;
-            const lng = pos.coords.longitude;
-            pUbicacion.textContent = `Lat: ${lat.toFixed(5)} - Lng: ${lng.toFixed(5)}`;
-            socket.emit("actualizarUbicacion", { lat, lng });
-          },
-          (err) => {
-            pUbicacion.textContent =
-              "No se pudo obtener la ubicación real. Usa 'Simular ubicación'.";
-          }
-        );
-      } else {
-        pUbicacion.textContent =
-          "Geolocalización no soportada. Usa 'Simular ubicación'.";
-      }
-    }
+    spNombre.textContent = nombre;
+    spIdTaxi.textContent = idTaxi;
 
-    btnSimularUbicacion.addEventListener("click", () => {
-      const lat = -12.04637 + (Math.random() - 0.5) / 100;
-      const lng = -77.04279 + (Math.random() - 0.5) / 100;
-      pUbicacion.textContent = `Lat (sim): ${lat.toFixed(5)} - Lng: ${lng.toFixed(5)}`;
-      socket.emit("actualizarUbicacion", { lat, lng });
+    cardLogin.style.display = "none";
+    cardApp.style.display = "block";
+
+    iniciarGeolocalizacion();
+  });
+
+  // Servicios
+  socket.on("nuevoServicio", (servicio) => {
+    idServicioActual = servicio.id;
+    infoServicioDiv.innerHTML = `
+      <p>
+        <strong>Servicio #${servicio.id}</strong><br/>
+        Dirección de recojo: ${servicio.direccion}
+      </p>
+    `;
+    accionesServicioDiv.style.display = "block";
+    actualizarEstado("asignado");
+    alert("Tienes un nuevo servicio asignado.");
+  });
+
+  btnAceptar.addEventListener("click", () => {
+    cambiarEstadoServicio("aceptado");
+  });
+
+  btnEnCurso.addEventListener("click", () => {
+    cambiarEstadoServicio("en curso");
+  });
+
+  btnFinalizado.addEventListener("click", () => {
+    cambiarEstadoServicio("finalizado");
+    idServicioActual = null;
+    infoServicioDiv.innerHTML = "<p>No tienes servicios asignados.</p>";
+    accionesServicioDiv.style.display = "none";
+  });
+
+  function cambiarEstadoServicio(nuevoEstado) {
+    if (!idServicioActual) return;
+    socket.emit("estadoServicio", { idServicio: idServicioActual, nuevoEstado });
+    actualizarEstado(nuevoEstado);
+  }
+
+  function actualizarEstado(estado) {
+    spEstado.textContent = estado;
+  }
+
+  // Geolocalización
+  function iniciarGeolocalizacion() {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.watchPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          pUbicacion.textContent = `Lat: ${lat.toFixed(5)} - Lng: ${lng.toFixed(5)}`;
+          socket.emit("actualizarUbicacion", { lat, lng });
+        },
+        (err) => {
+          pUbicacion.textContent =
+            "No se pudo obtener la ubicación real. Usa 'Simular ubicación'.";
+        }
+      );
+    } else {
+      pUbicacion.textContent =
+        "Geolocalización no soportada. Usa 'Simular ubicación'.";
+    }
+  }
+
+  btnSimularUbicacion.addEventListener("click", () => {
+    const lat = -12.04637 + (Math.random() - 0.5) / 100;
+    const lng = -77.04279 + (Math.random() - 0.5) / 100;
+    pUbicacion.textContent = `Lat (sim): ${lat.toFixed(5)} - Lng: ${lng.toFixed(5)}`;
+    socket.emit("actualizarUbicacion", { lat, lng });
+  });
+
+  // Chat texto
+  btnEnviarMensaje.addEventListener("click", () => {
+    const mensaje = txtMensaje.value.trim();
+    if (!mensaje) return;
+    socket.emit("mensajeChat", {
+      desde: "TAXI " + spIdTaxi.textContent,
+      para: "central",
+      mensaje,
     });
+    txtMensaje.value = "";
+  });
 
-    // Chat texto
-    btnEnviarMensaje.addEventListener("click", () => {
-      const mensaje = txtMensaje.value.trim();
-      if (!mensaje) return;
-      socket.emit("mensajeChat", {
-        desde: "TAXI " + spIdTaxi.textContent,
-        para: "central",
-        mensaje,
+  socket.on("mensajeChat", (data) => {
+    const p = document.createElement("p");
+    p.innerHTML = `<strong>${data.desde}:</strong> ${data.mensaje}`;
+    chatMensajesDiv.appendChild(p);
+    chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
+  });
+
+  // 🔊 Recibir audio (el taxi no se escucha a sí mismo)
+  socket.on("audioChunk", (data) => {
+    if (!data || !data.audio) return;
+
+    // si soy yo mismo, no reproducir
+    if (data.rol === "taxi" && data.idTaxi === spIdTaxi.textContent) {
+      return;
+    }
+
+    const blob = new Blob([data.audio], { type: "audio/webm;codecs=opus" });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.play().catch(err => {
+      console.error("Error al reproducir audio TAXI:", err);
+    });
+  });
+
+  // Indicador de quién habla
+  socket.on("canalOcupado", (info) => {
+    canalOcupadoLocal = true;
+    let texto = "Hablando: ";
+    if (info.rol === "central") {
+      texto += "CENTRAL";
+    } else if (info.rol === "taxi") {
+      texto += `Taxi ${info.idTaxi || ""}${info.nombre ? " - " + info.nombre : ""}`;
+    }
+    lblHablandoTaxi.textContent = texto;
+    lblHablandoTaxi.style.display = "block";
+  });
+
+  socket.on("canalLibre", () => {
+    canalOcupadoLocal = false;
+    if (!yoHablandoTaxi) {
+      lblHablandoTaxi.style.display = "none";
+    }
+  });
+
+  // Respuesta cuando taxi pide canal
+  socket.on("puedesHablar", () => {
+    yoHablandoTaxi = true;
+    startRecordingTaxi();
+  });
+
+  socket.on("canalRechazado", () => {
+    yoHablandoTaxi = false;
+    if (!isRecordingTaxi) {
+      micLabelTaxi.textContent = "Canal ocupado...";
+      micLabelTaxi.style.display = "block";
+      setTimeout(() => {
+        if (!isRecordingTaxi) micLabelTaxi.style.display = "none";
+      }, 700);
+    }
+  });
+
+  // ---- MICRÓFONO TAXI (streaming rápido con ArrayBuffer) ----
+  async function initMediaTaxi() {
+    if (mediaStreamTaxi) return;
+    try {
+      mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({
+        audio: true,
       });
-      txtMensaje.value = "";
-    });
-
-    socket.on("mensajeChat", (data) => {
-      const p = document.createElement("p");
-      p.innerHTML = `<strong>${data.desde}:</strong> ${data.mensaje}`;
-      chatMensajesDiv.appendChild(p);
-      chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
-    });
-
-    // 🔊 Recibir audio (taxi no se escucha a sí mismo)
-    socket.on("audioChunk", (data) => {
-      if (!data || !data.chunk) return;
-
-      if (data.rol === "taxi" && data.idTaxi === spIdTaxi.textContent) {
-        // es mi propio audio, no reproducir
-        return;
-      }
-
-      const blob = data.chunk instanceof Blob
-        ? data.chunk
-        : new Blob([data.chunk], { type: "audio/webm;codecs=opus" });
-
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.play().catch(err => {
-        console.error("Error al reproducir audio TAXI:", err);
-      });
-    });
-
-    // Indicador de quién habla
-    socket.on("canalOcupado", (info) => {
-      canalOcupadoLocal = true;
-      let texto = "Hablando: ";
-      if (info.rol === "central") {
-        texto += "CENTRAL";
-      } else if (info.rol === "taxi") {
-        texto += `Taxi ${info.idTaxi || ""}${info.nombre ? " - " + info.nombre : ""}`;
-      }
-      lblHablandoTaxi.textContent = texto;
-      lblHablandoTaxi.style.display = "block";
-    });
-
-    socket.on("canalLibre", () => {
-      canalOcupadoLocal = false;
-      if (!yoHablandoTaxi) {
-        lblHablandoTaxi.style.display = "none";
-      }
-    });
-
-    // Respuesta cuando taxi pide canal
-    socket.on("puedesHablar", () => {
-      yoHablandoTaxi = true;
-      startRecordingTaxi();
-    });
-
-    socket.on("canalRechazado", () => {
-      yoHablandoTaxi = false;
-      if (!isRecordingTaxi) {
-        micLabelTaxi.textContent = "Canal ocupado...";
-        micLabelTaxi.style.display = "block";
-        setTimeout(() => {
-          if (!isRecordingTaxi) micLabelTaxi.style.display = "none";
-        }, 700);
-      }
-    });
-
-    // ---- MICRÓFONO TAXI (streaming rápido) ----
-    async function initMediaTaxi() {
-      if (mediaStreamTaxi) return;
-      try {
-        mediaStreamTaxi = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
-      } catch (e) {
-        alert("No se pudo acceder al micrófono del taxi: " + e.message);
-      }
+    } catch (e) {
+      alert("No se pudo acceder al micrófono del taxi: " + e.message);
     }
+  }
 
-    function startRecordingTaxi() {
-      if (isRecordingTaxi) return;
-      initMediaTaxi().then(() => {
-        if (!mediaStreamTaxi) return;
+  function startRecordingTaxi() {
+    if (isRecordingTaxi) return;
+    initMediaTaxi().then(() => {
+      if (!mediaStreamTaxi) return;
 
-        mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi, {
-          mimeType: "audio/webm;codecs=opus",
-        });
+      mediaRecorderTaxi = new MediaRecorder(mediaStreamTaxi, {
+        mimeType: "audio/webm;codecs=opus",
+      });
 
-        mediaRecorderTaxi.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0 && yoHablandoTaxi) {
+      mediaRecorderTaxi.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0 && yoHablandoTaxi) {
+          e.data.arrayBuffer().then((buf) => {
             socket.emit("audioChunk", {
               rol: "taxi",
               idTaxi: spIdTaxi.textContent,
-              chunk: e.data,
+              audio: buf, // ArrayBuffer
             });
-          }
-        };
+          });
+        }
+      };
 
-        mediaRecorderTaxi.start(200);
-        isRecordingTaxi = true;
-        micLabelTaxi.textContent = "Grabando (taxi)...";
-        micLabelTaxi.style.display = "block";
-        btnMicTaxi.classList.add("recording");
-      });
-    }
-
-    function stopRecordingTaxi() {
-      if (!yoHablandoTaxi) return;
-
-      if (mediaRecorderTaxi && isRecordingTaxi) {
-        mediaRecorderTaxi.stop();
-      }
-      isRecordingTaxi = false;
-      btnMicTaxi.classList.remove("recording");
-      micLabelTaxi.style.display = "none";
-
-      yoHablandoTaxi = false;
-      socket.emit("canalLibre");
-    }
-
-    function requestCanalTaxi() {
-      if (yoHablandoTaxi) return;
-      if (canalOcupadoLocal) {
-        micLabelTaxi.textContent = "Canal ocupado...";
-        micLabelTaxi.style.display = "block";
-        setTimeout(() => {
-          if (!yoHablandoTaxi) micLabelTaxi.style.display = "none";
-        }, 700);
-        return;
-      }
-
-      socket.emit("canalOcupado", {
-        rol: "taxi",
-        idTaxi: spIdTaxi.textContent,
-        nombre: spNombre.textContent,
-      });
-    }
-
-    ["mousedown", "touchstart"].forEach((ev) => {
-      btnMicTaxi.addEventListener(ev, (e) => {
-        e.preventDefault();
-        requestCanalTaxi();
-      });
+      mediaRecorderTaxi.start(200); // chunks rápidos
+      isRecordingTaxi = true;
+      micLabelTaxi.textContent = "Grabando (taxi)...";
+      micLabelTaxi.style.display = "block";
+      btnMicTaxi.classList.add("recording");
     });
+  }
 
-    ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((ev) => {
-      btnMicTaxi.addEventListener(ev, (e) => {
-        e.preventDefault();
-        stopRecordingTaxi();
-      });
+  function stopRecordingTaxi() {
+    if (!yoHablandoTaxi) return;
+
+    if (mediaRecorderTaxi && isRecordingTaxi) {
+      mediaRecorderTaxi.stop();
+    }
+    isRecordingTaxi = false;
+    btnMicTaxi.classList.remove("recording");
+    micLabelTaxi.style.display = "none";
+
+    yoHablandoTaxi = false;
+    socket.emit("canalLibre");
+  }
+
+  function requestCanalTaxi() {
+    if (yoHablandoTaxi) return;
+    if (canalOcupadoLocal) {
+      micLabelTaxi.textContent = "Canal ocupado...";
+      micLabelTaxi.style.display = "block";
+      setTimeout(() => {
+        if (!yoHablandoTaxi) micLabelTaxi.style.display = "none";
+      }, 700);
+      return;
+    }
+
+    socket.emit("canalOcupado", {
+      rol: "taxi",
+      idTaxi: spIdTaxi.textContent,
+      nombre: spNombre.textContent,
     });
-  </script>
+  }
+
+  ["mousedown", "touchstart"].forEach((ev) => {
+    btnMicTaxi.addEventListener(ev, (e) => {
+      e.preventDefault();
+      requestCanalTaxi();
+    });
+  });
+
+  ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((ev) => {
+    btnMicTaxi.addEventListener(ev, (e) => {
+      e.preventDefault();
+      stopRecordingTaxi();
+    });
+  });
+</script>
 </body>
 </html>

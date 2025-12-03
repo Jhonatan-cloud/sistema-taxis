@@ -18,7 +18,7 @@ let servicios = [];
 
 // 🔥 RADIO: canal ocupado / libre (solo uno habla)
 let canalOcupado = false;      // true = alguien está hablando
-let infoHablando = null;       // { rol, idTaxi, nombre }
+let infoHablando = null;       // { rol, idTaxi, nombre, socketId }
 
 // ---------------------- SOCKET.IO ----------------------
 io.on("connection", (socket) => {
@@ -100,25 +100,25 @@ io.on("connection", (socket) => {
         nombre: data.nombre || "",
         socketId: socket.id,
       };
-      // avisar a todos quién habla
-      io.emit("canalOcupado", infoHablando);
-      socket.emit("puedesHablar"); // el que lo pidió, puede grabar
+      console.log("Canal ocupado por:", infoHablando);
+      io.emit("canalOcupado", infoHablando); // todos saben quién habla
+      socket.emit("puedesHablar");           // el que pidió, puede enviar audio
     } else {
-      // canal ya ocupado
       socket.emit("canalRechazado");
     }
   });
 
   socket.on("canalLibre", () => {
     if (infoHablando && infoHablando.socketId === socket.id) {
+      console.log("Canal liberado por:", infoHablando);
       canalOcupado = false;
       infoHablando = null;
       io.emit("canalLibre");
     }
   });
 
-  // 🔊 audio en streaming (chunks rápidos)
-  // data: { rol, idTaxi?, chunk }
+  // 🔊 audio en streaming (bloques pequeños)
+  // data: { rol, idTaxi?, audio: ArrayBuffer }
   socket.on("audioChunk", (data) => {
     if (!infoHablando || infoHablando.socketId !== socket.id) {
       // ignora si no es el que tiene el canal

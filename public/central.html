@@ -84,380 +84,376 @@
   </div>
 
   <script>
-    const socket = io();
+  const socket = io();
 
-    // LOGIN
-    const loginContainer = document.getElementById("loginContainer");
-    const appContainer = document.getElementById("appContainer");
-    const txtUser = document.getElementById("txtUser");
-    const txtPass = document.getElementById("txtPass");
-    const btnLogin = document.getElementById("btnLogin");
+  // LOGIN
+  const loginContainer = document.getElementById("loginContainer");
+  const appContainer = document.getElementById("appContainer");
+  const txtUser = document.getElementById("txtUser");
+  const txtPass = document.getElementById("txtPass");
+  const btnLogin = document.getElementById("btnLogin");
 
-    btnLogin.addEventListener("click", () => {
-      const u = txtUser.value.trim();
-      const p = txtPass.value.trim();
+  btnLogin.addEventListener("click", () => {
+    const u = txtUser.value.trim();
+    const p = txtPass.value.trim();
 
-      if (u === "TAXISPERU" && p === "PERU123") {
-        loginContainer.style.display = "none";
-        appContainer.style.display = "block";
+    if (u === "TAXISPERU" && p === "PERU123") {
+      loginContainer.style.display = "none";
+      appContainer.style.display = "block";
+    } else {
+      alert("Usuario o contraseña incorrectos.");
+    }
+  });
+
+  // ELEMENTOS APP
+  const listaTaxisDiv = document.getElementById("listaTaxis");
+  const selectTaxi = document.getElementById("selectTaxi");
+  const txtDireccion = document.getElementById("txtDireccion");
+  const btnAsignar = document.getElementById("btnAsignar");
+  const listaServiciosDiv = document.getElementById("listaServicios");
+  const chatMensajesDiv = document.getElementById("chatMensajes");
+  const txtMensaje = document.getElementById("txtMensaje");
+  const btnEnviarMensaje = document.getElementById("btnEnviarMensaje");
+
+  // Mic central
+  const btnMicCentral = document.getElementById("btnMicCentral");
+  const micLabelCentral = document.getElementById("micLabelCentral");
+  const lblHablandoCentral = document.getElementById("lblHablandoCentral");
+
+  let mediaStreamCentral = null;
+  let mediaRecorderCentral = null;
+  let isRecordingCentral = false;
+  let yoHablandoCentral = false;
+  let canalOcupadoLocal = false;
+
+  let taxis = {};
+  let map = null;
+  let markers = {};
+  let geocoder = null;
+  let destinos = {};
+  let destMarkers = {};
+  let polylines = {};
+
+  // ---- MAPA ----
+  function initMap() {
+    const centroInicial = { lat: -12.046374, lng: -77.042793 };
+    map = new google.maps.Map(document.getElementById("map"), {
+      center: centroInicial,
+      zoom: 12,
+    });
+    geocoder = new google.maps.Geocoder();
+  }
+
+  function actualizarMarkers() {
+    if (!map) return;
+
+    const idsActuales = Object.keys(taxis);
+    idsActuales.forEach((id) => {
+      const t = taxis[id];
+      if (t.lat == null || t.lng == null) return;
+      const pos = { lat: t.lat, lng: t.lng };
+
+      if (!markers[id]) {
+        markers[id] = new google.maps.Marker({
+          position: pos,
+          map: map,
+          title: `${t.nombre} (ID: ${t.idTaxi})`,
+          icon: "https://maps.gstatic.com/mapfiles/ms2/micons/cabs.png",
+        });
       } else {
-        alert("Usuario o contraseña incorrectos.");
+        markers[id].setPosition(pos);
       }
+
+      if (destinos[id]) crearOActualizarRuta(id);
     });
 
-    // ELEMENTOS APP
-    const listaTaxisDiv = document.getElementById("listaTaxis");
-    const selectTaxi = document.getElementById("selectTaxi");
-    const txtDireccion = document.getElementById("txtDireccion");
-    const btnAsignar = document.getElementById("btnAsignar");
-    const listaServiciosDiv = document.getElementById("listaServicios");
-    const chatMensajesDiv = document.getElementById("chatMensajes");
-    const txtMensaje = document.getElementById("txtMensaje");
-    const btnEnviarMensaje = document.getElementById("btnEnviarMensaje");
+    Object.keys(markers).forEach((id) => {
+      if (!taxis[id]) {
+        markers[id].setMap(null);
+        delete markers[id];
+        if (destMarkers[id]) { destMarkers[id].setMap(null); delete destMarkers[id]; }
+        if (polylines[id]) { polylines[id].setMap(null); delete polylines[id]; }
+      }
+    });
+  }
 
-    // Mic central
-    const btnMicCentral = document.getElementById("btnMicCentral");
-    const micLabelCentral = document.getElementById("micLabelCentral");
-    const lblHablandoCentral = document.getElementById("lblHablandoCentral");
+  function crearOActualizarRuta(socketIdTaxi) {
+    if (!markers[socketIdTaxi] || !destinos[socketIdTaxi]) return;
+    const origen = markers[socketIdTaxi].getPosition();
+    const destino = destinos[socketIdTaxi];
+    const path = [origen, destino];
 
-    let mediaStreamCentral = null;
-    let mediaRecorderCentral = null;
-    let isRecordingCentral = false;
-    let yoHablando = false;      // soy yo el que ocupa el canal
-    let canalOcupadoLocal = false;
-
-    let taxis = {};
-    let map = null;
-    let markers = {};
-    let geocoder = null;
-    let destinos = {};
-    let destMarkers = {};
-    let polylines = {};
-
-    // ---- MAPA ----
-    function initMap() {
-      const centroInicial = { lat: -12.046374, lng: -77.042793 };
-      map = new google.maps.Map(document.getElementById("map"), {
-        center: centroInicial,
-        zoom: 12,
+    if (!polylines[socketIdTaxi]) {
+      polylines[socketIdTaxi] = new google.maps.Polyline({
+        map,
+        path,
+        strokeColor: "#ffff00",
+        strokeWeight: 4,
       });
-      geocoder = new google.maps.Geocoder();
+    } else {
+      polylines[socketIdTaxi].setPath(path);
+    }
+  }
+
+  // ---- SOCKETS ----
+  socket.on("listaTaxis", (data) => {
+    taxis = data;
+    renderTaxis();
+    actualizarMarkers();
+  });
+
+  socket.on("actualizacionUbicaciones", (data) => {
+    taxis = data;
+    renderTaxis();
+    actualizarMarkers();
+  });
+
+  socket.on("listaServicios", (servicios) => {
+    renderServicios(servicios);
+  });
+
+  socket.on("mensajeChat", (data) => {
+    const p = document.createElement("p");
+    p.innerHTML = `<strong>${data.desde}:</strong> ${data.mensaje}`;
+    chatMensajesDiv.appendChild(p);
+    chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
+  });
+
+  // 🔊 Recibir audio (central nunca se escucha a sí misma)
+  socket.on("audioChunk", (data) => {
+    if (!data || !data.audio) return;
+    if (data.rol === "central") return; // no reproducir mi propio audio
+
+    const blob = new Blob([data.audio], { type: "audio/webm;codecs=opus" });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.play().catch(err => {
+      console.error("Error al reproducir audio CENTRAL:", err);
+    });
+  });
+
+  // Indicador de canal ocupado / libre
+  socket.on("canalOcupado", (info) => {
+    canalOcupadoLocal = true;
+    let texto = "Hablando: ";
+    if (info.rol === "central") {
+      texto += "CENTRAL";
+    } else if (info.rol === "taxi") {
+      texto += `Taxi ${info.idTaxi || ""}${info.nombre ? " - " + info.nombre : ""}`;
+    }
+    lblHablandoCentral.textContent = texto;
+    lblHablandoCentral.style.display = "block";
+  });
+
+  socket.on("canalLibre", () => {
+    canalOcupadoLocal = false;
+    if (!yoHablandoCentral) {
+      lblHablandoCentral.style.display = "none";
+    }
+  });
+
+  // Respuesta cuando central pide canal
+  socket.on("puedesHablar", () => {
+    yoHablandoCentral = true;
+    startRecordingCentral();
+  });
+
+  socket.on("canalRechazado", () => {
+    yoHablandoCentral = false;
+    if (!isRecordingCentral) {
+      micLabelCentral.textContent = "Canal ocupado...";
+      micLabelCentral.style.display = "block";
+      setTimeout(() => {
+        if (!isRecordingCentral) micLabelCentral.style.display = "none";
+      }, 700);
+    }
+  });
+
+  // ---- UI servicios / chat ----
+  btnAsignar.addEventListener("click", () => {
+    const socketIdTaxi = selectTaxi.value;
+    const direccion = txtDireccion.value.trim();
+    if (!socketIdTaxi || !direccion) {
+      alert("Selecciona un taxi y escribe una dirección.");
+      return;
     }
 
-    function actualizarMarkers() {
-      if (!map) return;
+    socket.emit("asignarServicio", { socketIdTaxi, direccion });
 
-      const idsActuales = Object.keys(taxis);
-      idsActuales.forEach((id) => {
-        const t = taxis[id];
-        if (t.lat == null || t.lng == null) return;
-        const pos = { lat: t.lat, lng: t.lng };
+    if (geocoder && map) {
+      geocoder.geocode({ address: direccion }, (results, status) => {
+        if (status === "OK" && results[0]) {
+          const location = results[0].geometry.location;
+          destinos[socketIdTaxi] = location;
 
-        if (!markers[id]) {
-          markers[id] = new google.maps.Marker({
-            position: pos,
-            map: map,
-            title: `${t.nombre} (ID: ${t.idTaxi})`,
-            icon: "https://maps.gstatic.com/mapfiles/ms2/micons/cabs.png",
+          if (destMarkers[socketIdTaxi]) destMarkers[socketIdTaxi].setMap(null);
+          destMarkers[socketIdTaxi] = new google.maps.Marker({
+            position: location,
+            map,
+            title: "Destino del servicio",
+            icon: "https://maps.gstatic.com/mapfiles/ms2/micons/flag.png",
           });
+
+          crearOActualizarRuta(socketIdTaxi);
         } else {
-          markers[id].setPosition(pos);
-        }
-
-        if (destinos[id]) crearOActualizarRuta(id);
-      });
-
-      Object.keys(markers).forEach((id) => {
-        if (!taxis[id]) {
-          markers[id].setMap(null);
-          delete markers[id];
-          if (destMarkers[id]) { destMarkers[id].setMap(null); delete destMarkers[id]; }
-          if (polylines[id]) { polylines[id].setMap(null); delete polylines[id]; }
+          console.log("No se pudo geocodificar:", status);
         }
       });
     }
 
-    function crearOActualizarRuta(socketIdTaxi) {
-      if (!markers[socketIdTaxi] || !destinos[socketIdTaxi]) return;
-      const origen = markers[socketIdTaxi].getPosition();
-      const destino = destinos[socketIdTaxi];
-      const path = [origen, destino];
+    txtDireccion.value = "";
+  });
 
-      if (!polylines[socketIdTaxi]) {
-        polylines[socketIdTaxi] = new google.maps.Polyline({
-          map,
-          path,
-          strokeColor: "#ffff00",
-          strokeWeight: 4,
-        });
-      } else {
-        polylines[socketIdTaxi].setPath(path);
-      }
+  btnEnviarMensaje.addEventListener("click", () => {
+    const mensaje = txtMensaje.value.trim();
+    if (!mensaje) return;
+    socket.emit("mensajeChat", {
+      desde: "CENTRAL",
+      para: "taxis",
+      mensaje,
+    });
+    txtMensaje.value = "";
+  });
+
+  function renderTaxis() {
+    listaTaxisDiv.innerHTML = "";
+    selectTaxi.innerHTML = "";
+
+    const ids = Object.keys(taxis);
+    if (ids.length === 0) {
+      listaTaxisDiv.innerHTML = "<p>No hay taxis conectados.</p>";
+      return;
     }
 
-    // ---- SOCKETS ----
-    socket.on("listaTaxis", (data) => {
-      taxis = data;
-      renderTaxis();
-      actualizarMarkers();
-    });
-
-    socket.on("actualizacionUbicaciones", (data) => {
-      taxis = data;
-      renderTaxis();
-      actualizarMarkers();
-    });
-
-    socket.on("listaServicios", (servicios) => {
-      renderServicios(servicios);
-    });
-
-    socket.on("mensajeChat", (data) => {
-      const p = document.createElement("p");
-      p.innerHTML = `<strong>${data.desde}:</strong> ${data.mensaje}`;
-      chatMensajesDiv.appendChild(p);
-      chatMensajesDiv.scrollTop = chatMensajesDiv.scrollHeight;
-    });
-
-    // 🔊 Recibir audio (central NUNCA se escucha a sí misma)
-    socket.on("audioChunk", (data) => {
-      if (!data || !data.chunk) return;
-
-      // si el que envió es la propia central, no reproducir
-      if (data.rol === "central") return;
-
-      const blob = data.chunk instanceof Blob
-        ? data.chunk
-        : new Blob([data.chunk], { type: "audio/webm;codecs=opus" });
-
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.play().catch(err => {
-        console.error("Error al reproducir audio CENTRAL:", err);
-      });
-    });
-
-    // Indicador de canal ocupado / libre
-    socket.on("canalOcupado", (info) => {
-      canalOcupadoLocal = true;
-      let texto = "Hablando: ";
-      if (info.rol === "central") {
-        texto += "CENTRAL";
-      } else if (info.rol === "taxi") {
-        texto += `Taxi ${info.idTaxi || ""}${info.nombre ? " - " + info.nombre : ""}`;
-      }
-      lblHablandoCentral.textContent = texto;
-      lblHablandoCentral.style.display = "block";
-    });
-
-    socket.on("canalLibre", () => {
-      canalOcupadoLocal = false;
-      if (!yoHablando) {
-        lblHablandoCentral.style.display = "none";
-      }
-    });
-
-    // Respuesta cuando central pidió ocupar canal
-    socket.on("puedesHablar", () => {
-      yoHablando = true;
-      startRecordingCentral();
-    });
-
-    socket.on("canalRechazado", () => {
-      yoHablando = false;
-      if (!isRecordingCentral) {
-        micLabelCentral.textContent = "Canal ocupado...";
-        micLabelCentral.style.display = "block";
-        setTimeout(() => {
-          if (!isRecordingCentral) micLabelCentral.style.display = "none";
-        }, 700);
-      }
-    });
-
-    // ---- UI de servicios ----
-    btnAsignar.addEventListener("click", () => {
-      const socketIdTaxi = selectTaxi.value;
-      const direccion = txtDireccion.value.trim();
-      if (!socketIdTaxi || !direccion) {
-        alert("Selecciona un taxi y escribe una dirección.");
-        return;
-      }
-
-      socket.emit("asignarServicio", { socketIdTaxi, direccion });
-
-      if (geocoder && map) {
-        geocoder.geocode({ address: direccion }, (results, status) => {
-          if (status === "OK" && results[0]) {
-            const location = results[0].geometry.location;
-            destinos[socketIdTaxi] = location;
-
-            if (destMarkers[socketIdTaxi]) destMarkers[socketIdTaxi].setMap(null);
-            destMarkers[socketIdTaxi] = new google.maps.Marker({
-              position: location,
-              map,
-              title: "Destino del servicio",
-              icon: "https://maps.gstatic.com/mapfiles/ms2/micons/flag.png",
-            });
-
-            crearOActualizarRuta(socketIdTaxi);
-          } else {
-            console.log("No se pudo geocodificar:", status);
+    ids.forEach((id) => {
+      const t = taxis[id];
+      const div = document.createElement("div");
+      div.innerHTML = `
+        <p>
+          <strong>${t.nombre}</strong> (ID: ${t.idTaxi})<br />
+          Estado: <span class="badge">${t.estado}</span><br/>
+          Ubicación: ${
+            t.lat ? t.lat.toFixed(5) + ", " + t.lng.toFixed(5) : "sin datos"
           }
-        });
-      }
+        </p>
+        <hr/>
+      `;
+      listaTaxisDiv.appendChild(div);
 
-      txtDireccion.value = "";
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = `${t.nombre} (ID: ${t.idTaxi}) - ${t.estado}`;
+      selectTaxi.appendChild(opt);
     });
+  }
 
-    btnEnviarMensaje.addEventListener("click", () => {
-      const mensaje = txtMensaje.value.trim();
-      if (!mensaje) return;
-      socket.emit("mensajeChat", {
-        desde: "CENTRAL",
-        para: "taxis",
-        mensaje,
-      });
-      txtMensaje.value = "";
+  function renderServicios(servicios) {
+    listaServiciosDiv.innerHTML = "";
+    if (!servicios || servicios.length === 0) {
+      listaServiciosDiv.innerHTML = "<p>No hay servicios aún.</p>";
+      return;
+    }
+
+    servicios.slice().reverse().forEach((s) => {
+      const div = document.createElement("div");
+      div.innerHTML = `
+        <p>
+          <strong>Servicio #${s.id}</strong><br />
+          Taxi: ${s.taxiNombre}<br/>
+          Dirección: ${s.direccion}<br/>
+          Estado: <span class="badge">${s.estado}</span>
+        </p>
+        <hr/>
+      `;
+      listaServiciosDiv.appendChild(div);
     });
+  }
 
-    function renderTaxis() {
-      listaTaxisDiv.innerHTML = "";
-      selectTaxi.innerHTML = "";
-
-      const ids = Object.keys(taxis);
-      if (ids.length === 0) {
-        listaTaxisDiv.innerHTML = "<p>No hay taxis conectados.</p>";
-        return;
-      }
-
-      ids.forEach((id) => {
-        const t = taxis[id];
-        const div = document.createElement("div");
-        div.innerHTML = `
-          <p>
-            <strong>${t.nombre}</strong> (ID: ${t.idTaxi})<br />
-            Estado: <span class="badge">${t.estado}</span><br/>
-            Ubicación: ${
-              t.lat ? t.lat.toFixed(5) + ", " + t.lng.toFixed(5) : "sin datos"
-            }
-          </p>
-          <hr/>
-        `;
-        listaTaxisDiv.appendChild(div);
-
-        const opt = document.createElement("option");
-        opt.value = id;
-        opt.textContent = `${t.nombre} (ID: ${t.idTaxi}) - ${t.estado}`;
-        selectTaxi.appendChild(opt);
+  // ---- MICRÓFONO CENTRAL (streaming rápido con ArrayBuffer) ----
+  async function initMediaCentral() {
+    if (mediaStreamCentral) return;
+    try {
+      mediaStreamCentral = await navigator.mediaDevices.getUserMedia({
+        audio: true,
       });
+    } catch (e) {
+      alert("No se pudo acceder al micrófono de la central: " + e.message);
     }
+  }
 
-    function renderServicios(servicios) {
-      listaServiciosDiv.innerHTML = "";
-      if (!servicios || servicios.length === 0) {
-        listaServiciosDiv.innerHTML = "<p>No hay servicios aún.</p>";
-        return;
-      }
+  function startRecordingCentral() {
+    if (isRecordingCentral) return;
+    initMediaCentral().then(() => {
+      if (!mediaStreamCentral) return;
 
-      servicios.slice().reverse().forEach((s) => {
-        const div = document.createElement("div");
-        div.innerHTML = `
-          <p>
-            <strong>Servicio #${s.id}</strong><br />
-            Taxi: ${s.taxiNombre}<br/>
-            Dirección: ${s.direccion}<br/>
-            Estado: <span class="badge">${s.estado}</span>
-          </p>
-          <hr/>
-        `;
-        listaServiciosDiv.appendChild(div);
+      mediaRecorderCentral = new MediaRecorder(mediaStreamCentral, {
+        mimeType: "audio/webm;codecs=opus",
       });
-    }
 
-    // ---- MICRÓFONO CENTRAL (streaming rápido) ----
-    async function initMediaCentral() {
-      if (mediaStreamCentral) return;
-      try {
-        mediaStreamCentral = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
-      } catch (e) {
-        alert("No se pudo acceder al micrófono de la central: " + e.message);
-      }
-    }
-
-    function startRecordingCentral() {
-      if (isRecordingCentral) return;
-      initMediaCentral().then(() => {
-        if (!mediaStreamCentral) return;
-
-        mediaRecorderCentral = new MediaRecorder(mediaStreamCentral, {
-          mimeType: "audio/webm;codecs=opus",
-        });
-
-        mediaRecorderCentral.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0 && yoHablando) {
-            // enviar chunk rápido
+      mediaRecorderCentral.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0 && yoHablandoCentral) {
+          e.data.arrayBuffer().then((buf) => {
             socket.emit("audioChunk", {
               rol: "central",
-              chunk: e.data,
+              audio: buf, // ArrayBuffer
             });
-          }
-        };
+          });
+        }
+      };
 
-        // chunks cada 200 ms (rápido tipo radio)
-        mediaRecorderCentral.start(200);
-        isRecordingCentral = true;
-        micLabelCentral.textContent = "Grabando (central)...";
-        micLabelCentral.style.display = "block";
-        btnMicCentral.classList.add("recording");
-      });
-    }
-
-    function stopRecordingCentral() {
-      if (!yoHablando) return;
-
-      if (mediaRecorderCentral && isRecordingCentral) {
-        mediaRecorderCentral.stop();
-      }
-      isRecordingCentral = false;
-      btnMicCentral.classList.remove("recording");
-      micLabelCentral.style.display = "none";
-
-      yoHablando = false;
-      socket.emit("canalLibre");
-    }
-
-    function requestCanalCentral() {
-      if (yoHablando) return;
-      if (canalOcupadoLocal) {
-        micLabelCentral.textContent = "Canal ocupado...";
-        micLabelCentral.style.display = "block";
-        setTimeout(() => {
-          if (!yoHablando) micLabelCentral.style.display = "none";
-        }, 700);
-        return;
-      }
-      socket.emit("canalOcupado", {
-        rol: "central",
-        nombre: "CENTRAL",
-      });
-    }
-
-    ["mousedown", "touchstart"].forEach((ev) => {
-      btnMicCentral.addEventListener(ev, (e) => {
-        e.preventDefault();
-        requestCanalCentral();
-      });
+      // chunks cada 200ms (rápido)
+      mediaRecorderCentral.start(200);
+      isRecordingCentral = true;
+      micLabelCentral.textContent = "Grabando (central)...";
+      micLabelCentral.style.display = "block";
+      btnMicCentral.classList.add("recording");
     });
+  }
 
-    ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((ev) => {
-      btnMicCentral.addEventListener(ev, (e) => {
-        e.preventDefault();
-        stopRecordingCentral();
-      });
+  function stopRecordingCentral() {
+    if (!yoHablandoCentral) return;
+
+    if (mediaRecorderCentral && isRecordingCentral) {
+      mediaRecorderCentral.stop();
+    }
+    isRecordingCentral = false;
+    btnMicCentral.classList.remove("recording");
+    micLabelCentral.style.display = "none";
+
+    yoHablandoCentral = false;
+    socket.emit("canalLibre");
+  }
+
+  function requestCanalCentral() {
+    if (yoHablandoCentral) return;
+    if (canalOcupadoLocal) {
+      micLabelCentral.textContent = "Canal ocupado...";
+      micLabelCentral.style.display = "block";
+      setTimeout(() => {
+        if (!yoHablandoCentral) micLabelCentral.style.display = "none";
+      }, 700);
+      return;
+    }
+    socket.emit("canalOcupado", {
+      rol: "central",
+      nombre: "CENTRAL",
     });
-  </script>
+  }
+
+  ["mousedown", "touchstart"].forEach((ev) => {
+    btnMicCentral.addEventListener(ev, (e) => {
+      e.preventDefault();
+      requestCanalCentral();
+    });
+  });
+
+  ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((ev) => {
+    btnMicCentral.addEventListener(ev, (e) => {
+      e.preventDefault();
+      stopRecordingCentral();
+    });
+  });
+</script>
 
   <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB_AwwkYMfrvI-mPmQoNAmKA3L25qoBb1s&callback=initMap"></script>
 </body>
