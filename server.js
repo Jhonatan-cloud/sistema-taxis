@@ -128,10 +128,18 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 🔊 AUDIO (igual que antes: un Blob por pulsación)
+  // 🔊 AUDIO (un Blob por pulsación)
   // data: { rol: "central"|"taxi", idTaxi?, para, audio: Blob }
   socket.on("audioMensaje", (data) => {
-    // reenviar a TODOS (central y taxis)
+    // 🚫 Si el canal está ocupado, solo el dueño puede mandar audio
+    if (canalOcupado && infoCanal) {
+      if (socket.id !== infoCanal.socketId) {
+        // Ignorar audio de otros mientras alguien tiene el canal
+        console.log("Audio bloqueado de", socket.id, "porque está hablando", infoCanal.socketId);
+        return;
+      }
+    }
+    // Si el canal está libre (caso raro) o soy el dueño → reenviar
     io.emit("audioMensaje", data);
   });
 
